@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { Search, PackageSearch } from 'lucide-react';
 import { useItems } from '@/hooks';
 import { LoadingSpinner, EmptyState, ItemCard } from '@/components';
-import { CATEGORIES, CITIES } from '@/lib/constants';
+import { CATEGORIES, CITIES, SUBCATEGORIES } from '@/lib/constants';
 
 const SORTS = [
   { value: 'newest', label: 'Newest' },
@@ -24,6 +24,7 @@ function BrowseContent() {
   const { items, loading, error } = useItems();
 
   const category = params.get('category') || '';
+  const subcategory = params.get('subcategory') || '';
   const location = params.get('location') || '';
   const sort = params.get('sort') || 'newest';
   const seller = params.get('seller') || '';
@@ -36,6 +37,7 @@ function BrowseContent() {
 
   const updateParam = (key: string, value: string) => {
     const next = new URLSearchParams(params.toString());
+    if (key === 'category') next.delete('subcategory');
     if (value) next.set(key, value);
     else next.delete(key);
     const qs = next.toString();
@@ -54,6 +56,7 @@ function BrowseContent() {
     const list = items.filter((item) => {
       if (seller && item.userId !== seller) return false;
       if (category && normalizeCategory(item.category) !== category) return false;
+      if (category && subcategory && item.subcategory !== subcategory) return false;
       if (location && item.location !== location) return false;
       if (q && !`${item.title} ${item.description || ''}`.toLowerCase().includes(q)) return false;
       return true;
@@ -61,7 +64,7 @@ function BrowseContent() {
     if (sort === 'price-asc') list.sort((a, b) => a.price - b.price);
     else if (sort === 'price-desc') list.sort((a, b) => b.price - a.price);
     return list;
-  }, [items, seller, category, location, urlSearch, sort]);
+  }, [items, seller, category, subcategory, location, urlSearch, sort]);
 
   const chip = (active: boolean) =>
     `px-4 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition ${
@@ -114,6 +117,16 @@ function BrowseContent() {
               </button>
             ))}
           </div>
+          {category && SUBCATEGORIES[category] && (
+            <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Subcategories">
+              <button className={chip(!subcategory)} onClick={() => updateParam('subcategory', '')}>All</button>
+              {SUBCATEGORIES[category].map((s) => (
+                <button key={s} className={chip(subcategory === s)} onClick={() => updateParam('subcategory', s)}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

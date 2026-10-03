@@ -22,6 +22,16 @@ export const CATEGORIES = [
   'Other',
 ] as const;
 
+export const SUBCATEGORIES: Record<string, string[]> = {
+  Furniture: ['Living Room', 'Bedroom', 'Dining Room', 'Office', 'Outdoor/Patio', 'Kitchen'],
+  Electronics: ['TVs', 'Computers', 'Phones', 'Audio', 'Gaming', 'Appliances'],
+  Tools: ['Power Tools', 'Hand Tools', 'Garden', 'Automotive', 'Ladders'],
+  Clothing: ['Men', 'Women', 'Kids', 'Shoes', 'Accessories'],
+  'Sports & Outdoors': ['Fitness', 'Camping', 'Fishing', 'Bikes', 'Team Sports'],
+  Books: ['Fiction', 'Non-Fiction', 'Kids', 'Textbooks', 'Magazines'],
+  Other: ['Toys', 'Collectibles', 'Decor', 'Misc'],
+};
+
 export const CONDITIONS = ['new', 'like-new', 'good', 'fair', 'poor'] as const;
 
 export const PRESET_AVATARS = [

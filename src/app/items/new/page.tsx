@@ -11,7 +11,7 @@ import { Upload, ArrowLeft } from 'lucide-react';
 import { useAuthStore } from '@/store';
 import { useAuthContext } from '@/hooks';
 import { LoadingSpinner } from '@/components';
-import { CITIES, CATEGORIES } from '@/lib/constants';
+import { CITIES, CATEGORIES, SUBCATEGORIES } from '@/lib/constants';
 
 export default function NewItem() {
   const { user, loading: authLoading } = useAuthStore();
@@ -23,6 +23,7 @@ export default function NewItem() {
     title: '',
     description: '',
     category: 'Other',
+    subcategory: '',
     price: '',
     originalPrice: '',
     condition: 'good',
@@ -47,6 +48,7 @@ export default function NewItem() {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value,
+      ...(e.target.name === 'category' ? { subcategory: '' } : {}),
     });
   };
 
@@ -99,6 +101,7 @@ export default function NewItem() {
         title: formData.title,
         description: formData.description,
         category: formData.category,
+        subcategory: formData.subcategory || null,
         price: parseFloat(formData.price),
         originalPrice: formData.originalPrice ? parseFloat(formData.originalPrice) : null,
         condition: formData.condition,
@@ -170,6 +173,20 @@ export default function NewItem() {
               >
                 {CATEGORIES.map((c) => (
                   <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Subcategory (Optional)</label>
+              <select
+                name="subcategory"
+                value={formData.subcategory}
+                onChange={handleInputChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
+              >
+                <option value="">None</option>
+                {(SUBCATEGORIES[formData.category] || []).map((s) => (
+                  <option key={s} value={s}>{s}</option>
                 ))}
               </select>
             </div>
