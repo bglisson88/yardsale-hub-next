@@ -30,7 +30,7 @@ export default function Login() {
     try {
       await signInWithEmailAndPassword(auth, formData.email, formData.password);
       toast.success('Signed in successfully!');
-      router.push('/dashboard');
+      router.push('/');
     } catch (error: any) {
       toast.error(error.message || 'Failed to sign in');
     } finally {
