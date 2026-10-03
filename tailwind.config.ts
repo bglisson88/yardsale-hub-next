@@ -39,6 +39,7 @@ const config: Config = {
       },
       fontFamily: {
         sans: ['var(--font-poppins)', 'system-ui', 'sans-serif'],
+        brand: ['var(--font-brand)', 'system-ui', 'sans-serif'],
       },
       spacing: {
         '128': '32rem',
