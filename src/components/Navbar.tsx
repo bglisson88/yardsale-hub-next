@@ -10,6 +10,7 @@ import { auth } from '@/lib/firebase';
 import { useAuthContext } from '@/hooks';
 import { useAuthStore } from '@/store';
 import { Avatar } from './Avatar';
+import { Logo } from './Logo';
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
@@ -64,9 +65,7 @@ export function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           <Link href="/" className="flex items-center gap-2 flex-shrink-0">
-            <div className="w-9 h-9 bg-gradient-to-br from-brand-500 to-brand-700 rounded-xl flex items-center justify-center shadow">
-              <span className="text-white font-bold text-sm">YH</span>
-            </div>
+            <Logo size={40} />
             <span className="hidden sm:block font-extrabold text-lg text-gray-900">YardSale Hub</span>
           </Link>
 
