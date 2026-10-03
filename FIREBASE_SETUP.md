@@ -190,17 +190,24 @@ service cloud.firestore {
       allow create: if request.auth.uid == request.resource.data.senderId;
     }
 
-    // Favorites - only owner can read and write
+    // Favorites - only owner can read, create and delete (no updates).
+    // The document ID must be {userId}_{type}_{targetId}, which prevents duplicates.
     match /favorites/{favoriteId} {
-      allow read: if request.auth.uid == resource.data.userId;
-      allow create: if request.auth.uid == request.resource.data.userId;
-      allow delete: if request.auth.uid == resource.data.userId;
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null
+                    && request.auth.uid == request.resource.data.userId
+                    && request.resource.data.type in ['item', 'seller']
+                    && request.resource.data.targetId is string
+                    && favoriteId == request.auth.uid + '_' + request.resource.data.type + '_' + request.resource.data.targetId;
+      allow delete: if request.auth != null && request.auth.uid == resource.data.userId;
     }
   }
 }
 ```
 
 3. Click **"Publish"**
+
+> The `favorites` collection is queried by `userId`, which Firestore indexes automatically. Orphaned favorites (for deleted items/sellers) are skipped on the Favorites page.
 
 ### 7.2 Set Storage Rules (includes `avatars/{userId}/**` for profile pictures)
 

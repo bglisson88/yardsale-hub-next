@@ -61,7 +61,8 @@ export interface Message {
 export interface Favorite {
   id: string;
   userId: string;
-  itemId: string;
+  type: 'item' | 'seller';
+  targetId: string;
   createdAt: Date;
 }
 

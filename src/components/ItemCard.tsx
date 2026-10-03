@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { Package, MapPin } from 'lucide-react';
 import { Avatar } from './Avatar';
+import { FavoriteButton } from './FavoriteButton';
 import type { Item } from '@/types';
 
 const NEW_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
@@ -30,8 +31,9 @@ export function ItemCard({ item }: { item: Item }) {
         <span className="absolute top-3 left-3 bg-brand-600 text-white font-bold text-sm px-3 py-1 rounded-full shadow">
           ${Number(item.price).toFixed(2)}
         </span>
+        <FavoriteButton type="item" targetId={item.id} size={18} className="absolute top-3 right-3 z-10" />
         {isNew && (
-          <span className="absolute top-3 right-3 bg-accent-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow">
+          <span className="absolute top-3 right-14 bg-accent-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow">
             NEW
           </span>
         )}

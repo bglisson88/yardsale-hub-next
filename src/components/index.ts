@@ -7,3 +7,4 @@ export { EmptyState } from './EmptyState';
 export { Avatar } from './Avatar';
 export { ItemCard } from './ItemCard';
 export { EventCard } from './EventCard';
+export { FavoriteButton } from './FavoriteButton';
