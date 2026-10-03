@@ -1,7 +1,4 @@
-'use client';
-
 import { Navbar, Footer } from '@/components';
-import { Logo } from '@/components/Logo';
 import './globals.css';
 import { Toaster } from 'react-hot-toast';
 
@@ -19,9 +16,7 @@ export default function RootLayout({
     <html lang="en">
       <body className="bg-white">
         <Navbar />
-        <main className="min-h-screen">
-          {children}
-        </main>
+        <main className="min-h-screen">{children}</main>
         <Footer />
         <Toaster position="top-right" />
       </body>
