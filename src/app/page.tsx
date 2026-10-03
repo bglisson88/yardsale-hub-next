@@ -8,13 +8,14 @@ import { Search, MapPin, ArrowRight, Radio } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { useItems } from '@/hooks';
 import { ItemCard, EventCard, EmptyState } from '@/components';
-import { CATEGORIES, CATEGORY_ICONS, CITIES } from '@/lib/constants';
+import { CATEGORIES, CATEGORY_ICONS, CITIES, SUBCATEGORIES } from '@/lib/constants';
 import type { YardSaleEvent } from '@/types';
 
 export default function Home() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [location, setLocation] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const { items } = useItems();
   const [events, setEvents] = useState<YardSaleEvent[]>([]);
 
@@ -116,16 +117,39 @@ export default function Home() {
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-8 relative z-10">
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
           {CATEGORIES.map((c) => (
-            <Link
+            <button
               key={c}
-              href={`/items?category=${encodeURIComponent(c)}`}
-              className="bg-white rounded-2xl shadow-md hover:shadow-xl hover:-translate-y-1 transition p-4 text-center"
+              type="button"
+              aria-expanded={selectedCategory === c}
+              onClick={() => setSelectedCategory(selectedCategory === c ? null : c)}
+              className={`bg-white rounded-2xl shadow-md hover:shadow-xl hover:-translate-y-1 transition p-4 text-center ${
+                selectedCategory === c ? 'ring-2 ring-brand-500' : ''
+              }`}
             >
               <div className="text-3xl mb-1" aria-hidden="true">{CATEGORY_ICONS[c]}</div>
               <p className="text-sm font-semibold text-gray-800">{c}</p>
-            </Link>
+            </button>
           ))}
         </div>
+        {selectedCategory && (
+          <div className="mt-4 bg-white rounded-2xl shadow-md p-4 flex flex-wrap gap-2" role="group" aria-label={`${selectedCategory} subcategories`}>
+            <Link
+              href={`/items?category=${encodeURIComponent(selectedCategory)}`}
+              className="px-4 py-1.5 rounded-full text-sm font-semibold bg-brand-600 text-white"
+            >
+              All {selectedCategory}
+            </Link>
+            {(SUBCATEGORIES[selectedCategory] || []).map((sub) => (
+              <Link
+                key={sub}
+                href={`/items?category=${encodeURIComponent(selectedCategory)}&subcategory=${encodeURIComponent(sub)}`}
+                className="px-4 py-1.5 rounded-full text-sm font-semibold bg-white text-gray-700 border border-gray-200 hover:border-brand-400"
+              >
+                {sub}
+              </Link>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* Latest Items */}
