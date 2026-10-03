@@ -2,3 +2,4 @@
 
 export { useAuthContext } from './useAuthContext';
 export { useItems } from './useItems';
+export { useFavorites } from './useFavorites';

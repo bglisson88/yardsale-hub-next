@@ -76,10 +76,13 @@ export interface Message {
   read: boolean;
 }
 
+export type FavoriteType = 'item' | 'seller';
+
 export interface Favorite {
   id: string;
   userId: string;
-  itemId: string;
+  type: FavoriteType;
+  targetId: string;
   createdAt: Date;
 }
 
