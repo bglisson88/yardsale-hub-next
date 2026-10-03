@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Package, MapPin } from 'lucide-react';
 import { Avatar } from './Avatar';
 import { FavoriteButton } from './FavoriteButton';
+import { SellerRating } from './SellerRating';
 import type { Item } from '@/types';
 
 const NEW_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
@@ -50,6 +51,7 @@ export function ItemCard({ item }: { item: Item }) {
             {item.condition}
           </span>
         </div>
+        <SellerRating sellerId={item.userId} className="mt-2" />
         <div className="flex items-center justify-between mt-3 text-sm text-gray-600">
           <span className="flex items-center gap-1 min-w-0">
             <MapPin size={14} aria-hidden="true" />

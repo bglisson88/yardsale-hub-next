@@ -5,6 +5,23 @@ export interface User {
   photoURL: string | null;
   location: string;
   bio: string;
+  averageRating?: number;
+  totalReviews?: number;
+  ratingBreakdown?: RatingBreakdown;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type RatingBreakdown = Record<'1' | '2' | '3' | '4' | '5', number>;
+
+export interface Review {
+  id: string; // `${sellerId}_${reviewerId}`
+  sellerId: string;
+  reviewerId: string;
+  reviewerName: string;
+  reviewerPhotoURL: string | null;
+  rating: number; // 1-5
+  comment: string; // max 500 chars
   createdAt: Date;
   updatedAt: Date;
 }

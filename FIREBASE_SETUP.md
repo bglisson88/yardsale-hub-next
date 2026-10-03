@@ -166,7 +166,39 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if true;
       allow create: if request.auth.uid == userId;
-      allow update, delete: if request.auth.uid == userId;
+      allow delete: if request.auth.uid == userId;
+      // Owner may edit their profile but not rating fields; other signed-in
+      // users may only update rating fields (client-side aggregates).
+      allow update: if (request.auth.uid == userId
+                        && !request.resource.data.diff(resource.data).affectedKeys()
+                             .hasAny(['averageRating', 'totalReviews', 'ratingBreakdown']))
+                    || (request.auth != null && request.auth.uid != userId
+                        && request.resource.data.diff(resource.data).affectedKeys()
+                             .hasOnly(['averageRating', 'totalReviews', 'ratingBreakdown'])
+                        && request.resource.data.averageRating >= 0
+                        && request.resource.data.averageRating <= 5
+                        && request.resource.data.totalReviews >= 0);
+    }
+
+    // Reviews - signed-in users can read; one review per buyer per seller
+    match /reviews/{reviewId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.reviewerId == request.auth.uid
+                    && request.resource.data.sellerId != request.auth.uid
+                    && reviewId == request.resource.data.sellerId + '_' + request.auth.uid
+                    && request.resource.data.rating is int
+                    && request.resource.data.rating >= 1
+                    && request.resource.data.rating <= 5
+                    && request.resource.data.comment.size() <= 500;
+      allow update: if request.auth.uid == resource.data.reviewerId
+                    && request.resource.data.reviewerId == resource.data.reviewerId
+                    && request.resource.data.sellerId == resource.data.sellerId
+                    && request.resource.data.rating is int
+                    && request.resource.data.rating >= 1
+                    && request.resource.data.rating <= 5
+                    && request.resource.data.comment.size() <= 500;
+      allow delete: if request.auth.uid == resource.data.reviewerId;
     }
 
     // Items collection - anyone can read, only creator can write
