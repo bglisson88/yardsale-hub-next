@@ -162,11 +162,45 @@ Make sure `.env.local` is in your `.gitignore` file (it should be by default).
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Users collection - anyone can read, only owner can write
+    // Users collection - anyone can read, only owner can write.
+    // Rating fields are maintained by reviewers (client-side calculation), never by the owner. For tamper-proof aggregates, move this to a Cloud Function.
     match /users/{userId} {
       allow read: if true;
       allow create: if request.auth.uid == userId;
-      allow update, delete: if request.auth.uid == userId;
+      allow update: if request.auth != null && (
+        (request.auth.uid == userId &&
+          !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['averageRating', 'totalReviews', 'ratingBreakdown'])) ||
+        (request.auth.uid != userId &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['averageRating', 'totalReviews', 'ratingBreakdown']) &&
+          request.resource.data.averageRating >= 0 && request.resource.data.averageRating <= 5 &&
+          request.resource.data.totalReviews is int && request.resource.data.totalReviews >= 0)
+      );
+      allow delete: if request.auth.uid == userId;
+    }
+
+    // Reviews - signed-in users can read; one review per buyer per seller.
+    // Document ID must be {sellerId}_{reviewerId}.
+    match /reviews/{reviewId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.reviewerId == request.auth.uid
+        && request.resource.data.sellerId != request.auth.uid
+        && reviewId == request.resource.data.sellerId + '_' + request.auth.uid
+        && request.resource.data.rating is int
+        && request.resource.data.rating >= 1 && request.resource.data.rating <= 5
+        && (!('comment' in request.resource.data)
+            || (request.resource.data.comment is string && request.resource.data.comment.size() <= 500));
+      allow update: if request.auth != null
+        && resource.data.reviewerId == request.auth.uid
+        && request.resource.data.reviewerId == resource.data.reviewerId
+        && request.resource.data.sellerId == resource.data.sellerId
+        && request.resource.data.rating is int
+        && request.resource.data.rating >= 1 && request.resource.data.rating <= 5
+        && (!('comment' in request.resource.data)
+            || (request.resource.data.comment is string && request.resource.data.comment.size() <= 500));
+      allow delete: if request.auth != null && resource.data.reviewerId == request.auth.uid;
     }
 
     // Items collection - anyone can read, only creator can write

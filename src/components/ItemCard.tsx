@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { Package, MapPin } from 'lucide-react';
 import { Avatar } from './Avatar';
+import { SellerRating } from './SellerRating';
 import type { Item } from '@/types';
 
 const NEW_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
@@ -52,6 +53,9 @@ export function ItemCard({ item }: { item: Item }) {
             <span className="truncate">{item.location || 'Local'}</span>
           </span>
           <Avatar src={item.sellerPhotoURL} name={item.sellerName} size={24} />
+        </div>
+        <div className="mt-2 min-h-[20px]">
+          <SellerRating sellerId={item.userId} size={12} />
         </div>
       </div>
     </Link>

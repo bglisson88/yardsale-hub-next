@@ -5,6 +5,9 @@ export interface User {
   photoURL: string | null;
   location: string;
   bio: string;
+  averageRating?: number;
+  totalReviews?: number;
+  ratingBreakdown?: Record<string, number>;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -71,4 +74,16 @@ export interface Conversation {
   lastMessage: string;
   lastMessageTime: Date;
   unreadCount: number;
+}
+
+export interface Review {
+  id: string;
+  sellerId: string;
+  reviewerId: string;
+  reviewerName?: string;
+  reviewerPhotoURL?: string | null;
+  rating: number; // 1-5
+  comment?: string; // max 500 characters
+  createdAt: Date;
+  updatedAt: Date;
 }
