@@ -1,66 +1,36 @@
-'use client';
-
+import { useId } from 'react';
 
 export function Logo({ size = 32 }: { size?: number }) {
+  const gradId = useId();
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 120 120"
+      viewBox="0 0 512 512"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
+      role="img"
+      aria-label="YardSale Hub"
     >
-      {/* Outer circle background */}
-      <circle cx="60" cy="60" r="58" fill="#FFF7ED" stroke="#EA580C" strokeWidth="3" />
-
-      {/* House/Garage shape */}
-      <g>
-        {/* Roof */}
-        <path d="M 30 65 L 60 35 L 90 65" fill="#EA580C" stroke="#9A3412" strokeWidth="2" />
-
-        {/* Main building */}
-        <rect x="32" y="65" width="56" height="45" fill="#F97316" stroke="#9A3412" strokeWidth="2" />
-
-        {/* Door */}
-        <rect x="50" y="80" width="20" height="30" fill="#9A3412" stroke="#9A3412" strokeWidth="1" />
-        <circle cx="68" cy="95" r="2" fill="#FCD34D" />
-
-        {/* Window left */}
-        <rect x="38" y="72" width="12" height="12" fill="#FED7AA" stroke="#9A3412" strokeWidth="1" />
-        <line x1="44" y1="72" x2="44" y2="84" stroke="#9A3412" strokeWidth="1" />
-        <line x1="38" y1="78" x2="50" y2="78" stroke="#9A3412" strokeWidth="1" />
-
-        {/* Window right */}
-        <rect x="70" y="72" width="12" height="12" fill="#FED7AA" stroke="#9A3412" strokeWidth="1" />
-        <line x1="76" y1="72" x2="76" y2="84" stroke="#9A3412" strokeWidth="1" />
-        <line x1="70" y1="78" x2="82" y2="78" stroke="#9A3412" strokeWidth="1" />
-
-        {/* Flag pole with price tag */}
-        <line x1="92" y1="50" x2="92" y2="65" stroke="#6B7280" strokeWidth="2" />
-        <path
-          d="M 92 50 L 102 47 L 102 53 Z"
-          fill="#EF4444"
-          stroke="#DC2626"
-          strokeWidth="1"
-        />
-
-        {/* Dollar sign on flag */}
-        <text
-          x="101"
-          y="52"
-          fontSize="8"
-          fontWeight="bold"
-          fill="white"
-          textAnchor="middle"
-        >
-          $
-        </text>
-      </g>
-
-      {/* Decorative elements */}
-      <circle cx="25" cy="25" r="4" fill="#EA580C" opacity="0.6" />
-      <circle cx="95" cy="30" r="3" fill="#EA580C" opacity="0.4" />
-      <circle cx="20" cy="95" r="3" fill="#EA580C" opacity="0.3" />
+      <defs>
+        <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#059669" />
+          <stop offset="100%" stopColor="#047857" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M256 32 C150 32 80 102 80 208 C80 320 256 480 256 480 C256 480 432 320 432 208 C432 102 362 32 256 32 Z"
+        fill={`url(#${gradId})`}
+      />
+      <path
+        d="M128 140 C128 120 144 104 164 104 L348 104 C368 104 384 120 384 140 L384 260 C384 280 368 296 348 296 L164 296 C144 296 128 280 128 260 Z"
+        stroke="#F59E0B"
+        strokeWidth="22"
+        strokeLinejoin="round"
+      />
+      <rect x="152" y="128" width="208" height="144" rx="18" fill="#FFFFFF" />
+      <path d="M188 160 L236 212 L236 248 L276 248 L276 212 L324 160 L284 160 L256 192 L228 160 Z" fill="#059669" />
+      <circle cx="256" cy="380" r="28" fill="#FFFFFF" />
     </svg>
   );
 }
