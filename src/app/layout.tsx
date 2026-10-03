@@ -1,10 +1,33 @@
+import type { Metadata } from 'next';
+import { Poppins } from 'next/font/google';
 import { Navbar, Footer } from '@/components';
 import './globals.css';
 import { Toaster } from 'react-hot-toast';
 
-export const metadata = {
-  title: 'YardSale Hub - Buy & Sell Locally',
-  description: 'Discover and organize local yard sales. Buy and sell items from your community.',
+const poppins = Poppins({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700', '800'],
+  variable: '--font-poppins',
+  display: 'swap',
+});
+
+const title = 'YardSale Hub - Buy & Sell Locally';
+const description = 'Discover and organize local yard sales. Buy and sell items from your community.';
+
+export const metadata: Metadata = {
+  title,
+  description,
+  openGraph: {
+    title,
+    description,
+    type: 'website',
+    siteName: 'YardSale Hub',
+  },
+  twitter: {
+    card: 'summary',
+    title,
+    description,
+  },
 };
 
 export default function RootLayout({
@@ -13,8 +36,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className="bg-white">
+    <html lang="en" className={poppins.variable}>
+      <body className="font-sans">
         <Navbar />
         <main className="min-h-screen">{children}</main>
         <Footer />

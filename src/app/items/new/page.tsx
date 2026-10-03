@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { collection, addDoc, Timestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage, auth } from '@/lib/firebase';
+import { db, storage } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -11,6 +11,7 @@ import { Upload, ArrowLeft } from 'lucide-react';
 import { useAuthStore } from '@/store';
 import { useAuthContext } from '@/hooks';
 import { LoadingSpinner } from '@/components';
+import { CITIES, CATEGORIES } from '@/lib/constants';
 
 export default function NewItem() {
   const { user, loading: authLoading } = useAuthStore();
@@ -103,6 +104,8 @@ export default function NewItem() {
         condition: formData.condition,
         location: formData.location || user.location,
         photoURLs,
+        sellerName: user.displayName,
+        sellerPhotoURL: user.photoURL || null,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
         views: 0,
@@ -120,7 +123,7 @@ export default function NewItem() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      <Link href="/dashboard" className="flex items-center gap-2 text-blue-600 hover:text-blue-700 mb-6">
+      <Link href="/dashboard" className="flex items-center gap-2 text-brand-600 hover:text-brand-700 mb-6">
         <ArrowLeft size={20} /> Back to Dashboard
       </Link>
 
@@ -137,7 +140,7 @@ export default function NewItem() {
               required
               value={formData.title}
               onChange={handleInputChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               placeholder="e.g., Vintage Oak Coffee Table"
             />
           </div>
@@ -150,7 +153,7 @@ export default function NewItem() {
               value={formData.description}
               onChange={handleInputChange}
               rows={4}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               placeholder="Describe your item in detail..."
             />
           </div>
@@ -163,15 +166,11 @@ export default function NewItem() {
                 name="category"
                 value={formData.category}
                 onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
               >
-                <option value="Other">Other</option>
-                <option value="Furniture">Furniture</option>
-                <option value="Electronics">Electronics</option>
-                <option value="Tools">Tools</option>
-                <option value="Clothing">Clothing</option>
-                <option value="Sports">Sports & Outdoors</option>
-                <option value="Books">Books</option>
+                {CATEGORIES.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
               </select>
             </div>
             <div>
@@ -180,7 +179,7 @@ export default function NewItem() {
                 name="condition"
                 value={formData.condition}
                 onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
               >
                 <option value="new">New</option>
                 <option value="like-new">Like New</option>
@@ -202,7 +201,7 @@ export default function NewItem() {
                 step="0.01"
                 value={formData.price}
                 onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                 placeholder="0.00"
               />
             </div>
@@ -214,7 +213,7 @@ export default function NewItem() {
                 step="0.01"
                 value={formData.originalPrice}
                 onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                 placeholder="0.00"
               />
             </div>
@@ -223,14 +222,17 @@ export default function NewItem() {
           {/* Location */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">Location</label>
-            <input
-              type="text"
+            <select
               name="location"
               value={formData.location || user.location}
               onChange={handleInputChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Your location"
-            />
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
+            >
+              <option value="">Select a location</option>
+              {CITIES.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
           </div>
 
           {/* Photos */}
@@ -247,7 +249,7 @@ export default function NewItem() {
                 id="photo-upload"
               />
               <label htmlFor="photo-upload" className="cursor-pointer">
-                <span className="text-blue-600 font-semibold hover:underline">Click to upload</span>
+                <span className="text-brand-600 font-semibold hover:underline">Click to upload</span>
                 <span className="text-gray-600"> or drag and drop</span>
               </label>
               <p className="text-sm text-gray-500 mt-1">PNG, JPG up to 10MB each</p>
@@ -277,7 +279,7 @@ export default function NewItem() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition disabled:opacity-50"
+            className="w-full bg-brand-600 text-white py-3 rounded-lg font-bold hover:bg-brand-700 transition disabled:opacity-50"
           >
             {loading ? 'Publishing...' : 'Publish Item'}
           </button>

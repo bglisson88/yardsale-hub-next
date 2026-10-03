@@ -11,6 +11,23 @@ import { Upload, ArrowLeft } from 'lucide-react';
 import { useAuthStore } from '@/store';
 import { useAuthContext } from '@/hooks';
 import { LoadingSpinner } from '@/components';
+import { CITIES, CITY_CENTERS, DEFAULT_MAP_CENTER } from '@/lib/constants';
+
+async function geocodeAddress(address: string, city: string): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const q = encodeURIComponent(`${address}, ${city}, TX`);
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${q}`);
+    if (!res.ok) return null;
+    const results = await res.json();
+    if (!Array.isArray(results) || results.length === 0) return null;
+    const lat = parseFloat(results[0].lat);
+    const lng = parseFloat(results[0].lon);
+    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+  } catch (error) {
+    console.error('Geocoding failed:', error);
+    return null;
+  }
+}
 
 export default function NewEvent() {
   const { user, loading: authLoading } = useAuthStore();
@@ -83,20 +100,33 @@ export default function NewEvent() {
       const startDateTime = new Date(`${formData.startDate}T${formData.startTime}`);
       const endDateTime = new Date(`${formData.endDate}T${formData.endTime}`);
 
+      const city = formData.location || user.location;
+      let coords = await geocodeAddress(formData.address, city);
+      if (!coords) {
+        const center = CITY_CENTERS[city] || DEFAULT_MAP_CENTER;
+        coords = {
+          lat: center.lat + (Math.random() - 0.5) * 0.02,
+          lng: center.lng + (Math.random() - 0.5) * 0.02,
+        };
+        toast("Couldn't find that address on the map, so we placed it near the city center.", { icon: '📍' });
+      }
+
       await addDoc(collection(db, 'yardSaleEvents'), {
         userId: user.id,
         title: formData.title,
         description: formData.description,
         address: formData.address,
-        location: formData.location || user.location,
+        location: city,
+        posterName: user.displayName,
+        posterPhotoURL: user.photoURL || null,
         startDate: Timestamp.fromDate(startDateTime),
         endDate: Timestamp.fromDate(endDateTime),
         photoURL,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
         itemCount: 0,
-        latitude: 0,
-        longitude: 0,
+        latitude: coords.lat,
+        longitude: coords.lng,
       });
 
       toast.success('Yard sale event created!');
@@ -110,7 +140,7 @@ export default function NewEvent() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      <Link href="/dashboard" className="flex items-center gap-2 text-blue-600 hover:text-blue-700 mb-6">
+      <Link href="/dashboard" className="flex items-center gap-2 text-brand-600 hover:text-brand-700 mb-6">
         <ArrowLeft size={20} /> Back to Dashboard
       </Link>
 
@@ -127,7 +157,7 @@ export default function NewEvent() {
               required
               value={formData.title}
               onChange={handleInputChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               placeholder="e.g., Spring Garage Sale"
             />
           </div>
@@ -140,7 +170,7 @@ export default function NewEvent() {
               value={formData.description}
               onChange={handleInputChange}
               rows={4}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               placeholder="Describe your yard sale..."
             />
           </div>
@@ -154,7 +184,7 @@ export default function NewEvent() {
               required
               value={formData.address}
               onChange={handleInputChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               placeholder="Street address"
             />
           </div>
@@ -164,15 +194,14 @@ export default function NewEvent() {
             <label className="block text-sm font-semibold text-gray-700 mb-2">Location</label>
             <select
               name="location"
-              value={formData.location}
+              value={formData.location || user.location}
               onChange={handleInputChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
             >
-              <option value={user.location}>{user.location}</option>
-              <option value="Nederland">Nederland</option>
-              <option value="Groves">Groves</option>
-              <option value="West Beaumont">West Beaumont</option>
-              <option value="Orange County">Orange County</option>
+              <option value="">Select a location</option>
+              {CITIES.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
             </select>
           </div>
 
@@ -186,7 +215,7 @@ export default function NewEvent() {
                 required
                 value={formData.startDate}
                 onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>
             <div>
@@ -197,7 +226,7 @@ export default function NewEvent() {
                 required
                 value={formData.startTime}
                 onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>
           </div>
@@ -212,7 +241,7 @@ export default function NewEvent() {
                 required
                 value={formData.endDate}
                 onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>
             <div>
@@ -223,7 +252,7 @@ export default function NewEvent() {
                 required
                 value={formData.endTime}
                 onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>
           </div>
@@ -241,7 +270,7 @@ export default function NewEvent() {
                 id="photo-upload"
               />
               <label htmlFor="photo-upload" className="cursor-pointer">
-                <span className="text-blue-600 font-semibold hover:underline">Click to upload</span>
+                <span className="text-brand-600 font-semibold hover:underline">Click to upload</span>
               </label>
             </div>
 
@@ -255,7 +284,7 @@ export default function NewEvent() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition disabled:opacity-50"
+            className="w-full bg-brand-600 text-white py-3 rounded-lg font-bold hover:bg-brand-700 transition disabled:opacity-50"
           >
             {loading ? 'Creating...' : 'Create Event'}
           </button>

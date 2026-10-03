@@ -3,12 +3,12 @@
 import { useEffect, useState } from 'react';
 import { useAuthStore } from '@/store';
 import { useAuthContext } from '@/hooks';
-import { LoadingSpinner } from '@/components';
+import { LoadingSpinner, Avatar } from '@/components';
 import { signOut } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { User, Package, Calendar } from 'lucide-react';
+import { Package, Calendar } from 'lucide-react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 
 export default function Dashboard() {
@@ -18,25 +18,31 @@ export default function Dashboard() {
   const [itemCount, setItemCount] = useState(0);
   const [eventCount, setEventCount] = useState(0);
 
+  const uid = user?.id || auth.currentUser?.uid;
+
   useEffect(() => {
-    if (!user?.id) return;
+    if (!uid) return;
 
-    const itemsQuery = query(collection(db, 'items'), where('userId', '==', user.id));
-    const eventsQuery = query(collection(db, 'yardSaleEvents'), where('userId', '==', user.id));
+    const itemsQuery = query(collection(db, 'items'), where('userId', '==', uid));
+    const eventsQuery = query(collection(db, 'yardSaleEvents'), where('userId', '==', uid));
 
-    const unsubscribeItems = onSnapshot(itemsQuery, (snapshot) => {
-      setItemCount(snapshot.size);
-    });
+    const unsubscribeItems = onSnapshot(
+      itemsQuery,
+      (snapshot) => setItemCount(snapshot.size),
+      (error) => console.error('Error loading item count:', error)
+    );
 
-    const unsubscribeEvents = onSnapshot(eventsQuery, (snapshot) => {
-      setEventCount(snapshot.size);
-    });
+    const unsubscribeEvents = onSnapshot(
+      eventsQuery,
+      (snapshot) => setEventCount(snapshot.size),
+      (error) => console.error('Error loading event count:', error)
+    );
 
     return () => {
       unsubscribeItems();
       unsubscribeEvents();
     };
-  }, [user?.id]);
+  }, [uid]);
 
   if (loading) {
     return (
@@ -67,9 +73,7 @@ export default function Dashboard() {
         {/* Profile Card */}
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <div className="flex items-center gap-4 mb-4">
-            <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center">
-              <User className="text-white" size={24} />
-            </div>
+            <Avatar src={user.photoURL} name={user.displayName} size={48} />
             <div>
               <p className="text-sm text-gray-600">Profile</p>
               <p className="font-semibold text-gray-900">{user.displayName}</p>
@@ -77,7 +81,7 @@ export default function Dashboard() {
           </div>
           <Link
             href="/dashboard/profile"
-            className="text-blue-600 font-semibold text-sm hover:underline"
+            className="text-brand-600 font-semibold text-sm hover:underline"
           >
             Edit Profile →
           </Link>
@@ -96,7 +100,7 @@ export default function Dashboard() {
           </div>
           <Link
             href="/items/new"
-            className="text-blue-600 font-semibold text-sm hover:underline"
+            className="text-brand-600 font-semibold text-sm hover:underline"
           >
             Post Item →
           </Link>
@@ -115,7 +119,7 @@ export default function Dashboard() {
           </div>
           <Link
             href="/events/new"
-            className="text-blue-600 font-semibold text-sm hover:underline"
+            className="text-brand-600 font-semibold text-sm hover:underline"
           >
             Create Event →
           </Link>
@@ -124,7 +128,7 @@ export default function Dashboard() {
 
       <div className="flex gap-4">
         <Link
-          href="/"
+          href="/items"
           className="px-6 py-2 bg-gray-100 text-gray-900 rounded-lg hover:bg-gray-200 transition font-semibold"
         >
           Browse Listings

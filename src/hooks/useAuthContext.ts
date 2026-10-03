@@ -18,7 +18,16 @@ export function useAuthContext() {
           const userDoc = await getDoc(userDocRef);
 
           if (userDoc.exists()) {
-            setUser(userDoc.data() as User);
+            const data = userDoc.data();
+            setUser({
+              ...(data as User),
+              id: firebaseUser.uid,
+              email: data.email || firebaseUser.email || '',
+              displayName: data.displayName || firebaseUser.displayName || 'User',
+              photoURL: data.photoURL || firebaseUser.photoURL || null,
+              createdAt: data.createdAt?.toDate?.() ?? new Date(),
+              updatedAt: data.updatedAt?.toDate?.() ?? new Date(),
+            });
           } else {
             // Create new user doc if it doesn't exist
             const newUser: User = {

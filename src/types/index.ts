@@ -21,6 +21,8 @@ export interface YardSaleEvent {
   startDate: Date;
   endDate: Date;
   photoURL: string | null;
+  posterName?: string;
+  posterPhotoURL?: string | null;
   createdAt: Date;
   updatedAt: Date;
   itemCount: number;
@@ -38,6 +40,8 @@ export interface Item {
   condition: 'new' | 'like-new' | 'good' | 'fair' | 'poor';
   location: string;
   photoURLs: string[];
+  sellerName?: string;
+  sellerPhotoURL?: string | null;
   createdAt: Date;
   updatedAt: Date;
   views: number;

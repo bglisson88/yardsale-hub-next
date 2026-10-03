@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { collection, query, where, orderBy, onSnapshot, addDoc, Timestamp, updateDoc, doc } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, addDoc, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuthStore } from '@/store';
 import { useAuthContext } from '@/hooks';
@@ -25,6 +25,11 @@ export default function Messages() {
   const [messageText, setMessageText] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    const to = new URLSearchParams(window.location.search).get('to');
+    if (to) setSelectedUserId(to);
+  }, []);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -131,7 +136,7 @@ export default function Messages() {
                   key={conv.id}
                   onClick={() => setSelectedUserId(conv.id)}
                   className={`w-full p-4 border-b border-gray-100 text-left hover:bg-gray-50 transition ${
-                    selectedUserId === conv.id ? 'bg-blue-50 border-l-4 border-l-blue-600' : ''
+                    selectedUserId === conv.id ? 'bg-brand-50 border-l-4 border-l-brand-600' : ''
                   }`}
                 >
                   <p className="font-semibold text-sm">{conv.displayName}</p>
@@ -154,7 +159,7 @@ export default function Messages() {
                     <div
                       className={`max-w-xs px-4 py-2 rounded-lg ${
                         msg.senderId === user.id
-                          ? 'bg-blue-600 text-white'
+                          ? 'bg-brand-600 text-white'
                           : 'bg-gray-100 text-gray-900'
                       }`}
                     >
@@ -172,12 +177,12 @@ export default function Messages() {
                   value={messageText}
                   onChange={(e) => setMessageText(e.target.value)}
                   placeholder="Type a message..."
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
                 <button
                   type="submit"
                   disabled={sending || !messageText.trim()}
-                  className="bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
+                  className="bg-brand-600 text-white p-2 rounded-lg hover:bg-brand-700 transition disabled:opacity-50"
                 >
                   <Send size={20} />
                 </button>

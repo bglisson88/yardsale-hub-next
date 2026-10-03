@@ -1,13 +1,14 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { useItemStore } from '@/store';
 import type { Item } from '@/types';
 
 export function useItems(userId?: string, yardSaleId?: string) {
-  const { items, setItems, setLoading, setError } = useItemStore();
+  const [items, setItems] = useState<Item[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -21,22 +22,33 @@ export function useItems(userId?: string, yardSaleId?: string) {
       q = query(collection(db, 'items'), where('isSold', '==', false));
     }
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const itemsList: Item[] = [];
-      snapshot.forEach((doc) => {
-        itemsList.push({
-          ...doc.data(),
-          id: doc.id,
-          createdAt: doc.data().createdAt?.toDate(),
-          updatedAt: doc.data().updatedAt?.toDate(),
-        } as Item);
-      });
-      setItems(itemsList);
-      setLoading(false);
-    });
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const itemsList: Item[] = snapshot.docs.map((d) => {
+          const data = d.data();
+          return {
+            ...data,
+            id: d.id,
+            photoURLs: data.photoURLs || [],
+            createdAt: data.createdAt?.toDate?.() ?? new Date(0),
+            updatedAt: data.updatedAt?.toDate?.() ?? new Date(0),
+          } as Item;
+        });
+        itemsList.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        setItems(itemsList);
+        setError(null);
+        setLoading(false);
+      },
+      (err) => {
+        console.error('Error loading items:', err);
+        setError(err.message);
+        setLoading(false);
+      }
+    );
 
     return () => unsubscribe();
-  }, [userId, yardSaleId, setItems, setLoading]);
+  }, [userId, yardSaleId]);
 
-  return { items, loading: useItemStore((state) => state.loading), error: useItemStore((state) => state.error) };
+  return { items, loading, error };
 }
