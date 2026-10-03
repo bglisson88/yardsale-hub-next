@@ -1,18 +1,42 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useAuthStore } from '@/store';
 import { useAuthContext } from '@/hooks';
 import { LoadingSpinner } from '@/components';
 import { signOut } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { User, Package, Calendar } from 'lucide-react';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 
 export default function Dashboard() {
   const { user, loading } = useAuthStore();
   useAuthContext();
   const router = useRouter();
+  const [itemCount, setItemCount] = useState(0);
+  const [eventCount, setEventCount] = useState(0);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const itemsQuery = query(collection(db, 'items'), where('userId', '==', user.id));
+    const eventsQuery = query(collection(db, 'yardSaleEvents'), where('userId', '==', user.id));
+
+    const unsubscribeItems = onSnapshot(itemsQuery, (snapshot) => {
+      setItemCount(snapshot.size);
+    });
+
+    const unsubscribeEvents = onSnapshot(eventsQuery, (snapshot) => {
+      setEventCount(snapshot.size);
+    });
+
+    return () => {
+      unsubscribeItems();
+      unsubscribeEvents();
+    };
+  }, [user?.id]);
 
   if (loading) {
     return (
@@ -67,7 +91,7 @@ export default function Dashboard() {
             </div>
             <div>
               <p className="text-sm text-gray-600">My Items</p>
-              <p className="font-semibold text-gray-900">0 Listings</p>
+              <p className="font-semibold text-gray-900">{itemCount} Listing{itemCount === 1 ? '' : 's'}</p>
             </div>
           </div>
           <Link
@@ -86,7 +110,7 @@ export default function Dashboard() {
             </div>
             <div>
               <p className="text-sm text-gray-600">My Events</p>
-              <p className="font-semibold text-gray-900">0 Yard Sales</p>
+              <p className="font-semibold text-gray-900">{eventCount} Yard Sale{eventCount === 1 ? '' : 's'}</p>
             </div>
           </div>
           <Link
