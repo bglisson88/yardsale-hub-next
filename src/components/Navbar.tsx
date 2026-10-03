@@ -65,8 +65,8 @@ export function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           <Link href="/" className="flex items-center gap-2 flex-shrink-0">
-            <Logo size={40} />
-            <span className="hidden sm:block font-extrabold text-lg text-gray-900">YardSale Hub</span>
+            <Logo size={52} />
+            <span className="hidden sm:block text-3xl text-gray-900" style={{ fontFamily: 'var(--font-brand), cursive' }}>YardSale Hub</span>
           </Link>
 
           {/* Desktop Menu */}
