@@ -7,7 +7,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { ArrowLeft, MapPin, MessageCircle, Package, Tag } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { useAuthStore } from '@/store';
-import { LoadingSpinner, EmptyState, Avatar } from '@/components';
+import { LoadingSpinner, EmptyState, Avatar, SellerRating, ReviewForm } from '@/components';
 import type { Item } from '@/types';
 
 export default function ItemDetail() {
@@ -132,9 +132,19 @@ export default function ItemDetail() {
             <Avatar src={item.sellerPhotoURL} name={item.sellerName} size={48} />
             <div>
               <p className="text-xs text-gray-500">Sold by</p>
-              <p className="font-bold text-gray-900">{item.sellerName || 'Neighbor'}</p>
+              <Link href={`/sellers/${item.userId}`} className="font-bold text-gray-900 hover:text-brand-700 hover:underline">
+                {item.sellerName || 'Neighbor'}
+              </Link>
+              <SellerRating sellerId={item.userId} />
             </div>
           </div>
+
+          {!isOwner && (
+            <div className="mt-6">
+              <h2 className="font-bold text-gray-900 mb-2">Rate this seller</h2>
+              <ReviewForm sellerId={item.userId} />
+            </div>
+          )}
 
           {!isOwner && (
             <Link href={messageHref} className="btn-primary w-full mt-6">
