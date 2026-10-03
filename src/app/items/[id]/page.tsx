@@ -7,7 +7,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { ArrowLeft, MapPin, MessageCircle, Package, Tag } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { useAuthStore } from '@/store';
-import { LoadingSpinner, EmptyState, Avatar } from '@/components';
+import { LoadingSpinner, EmptyState, Avatar, FavoriteButton } from '@/components';
 import type { Item } from '@/types';
 
 export default function ItemDetail() {
@@ -101,7 +101,10 @@ export default function ItemDetail() {
         </div>
 
         <div>
-          <h1 className="text-3xl font-extrabold text-gray-900">{item.title}</h1>
+          <div className="flex items-start justify-between gap-3">
+            <h1 className="text-3xl font-extrabold text-gray-900">{item.title}</h1>
+            <FavoriteButton type="item" targetId={item.id} />
+          </div>
           <div className="flex items-center gap-3 mt-4">
             <span className="text-3xl font-extrabold text-brand-600">${Number(item.price).toFixed(2)}</span>
             {item.originalPrice ? (
@@ -130,10 +133,11 @@ export default function ItemDetail() {
 
           <div className="flex items-center gap-3 mt-8 p-4 bg-white rounded-2xl border border-gray-100 shadow-sm">
             <Avatar src={item.sellerPhotoURL} name={item.sellerName} size={48} />
-            <div>
+            <div className="flex-1 min-w-0">
               <p className="text-xs text-gray-500">Sold by</p>
-              <p className="font-bold text-gray-900">{item.sellerName || 'Neighbor'}</p>
+              <p className="font-bold text-gray-900 truncate">{item.sellerName || 'Neighbor'}</p>
             </div>
+            {!isOwner && <FavoriteButton type="seller" targetId={item.userId} />}
           </div>
 
           {!isOwner && (

@@ -42,6 +42,7 @@ export function Navbar() {
         { href: `/items?seller=${user.id}`, label: 'My Items' },
         { href: '/items/new', label: 'Post Item' },
         { href: '/events/new', label: 'Create Event' },
+        { href: '/favorites', label: 'Favorites' },
         { href: '/messages', label: 'Messages' },
       ]
     : [];
