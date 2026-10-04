@@ -9,10 +9,10 @@ import { db } from '@/lib/firebase';
 import { useAuthStore } from '@/store';
 import { useAuthContext } from '@/hooks';
 import { useFavorites } from '@/hooks/useFavorites';
-import { LoadingSpinner, EmptyState, ItemCard, Avatar } from '@/components';
-import type { Item, User } from '@/types';
+import { LoadingSpinner, EmptyState, ItemCard, EventCard, Avatar } from '@/components';
+import type { Item, User, YardSaleEvent } from '@/types';
 
-type Tab = 'item' | 'seller';
+type Tab = 'item' | 'seller' | 'event';
 
 export default function FavoritesPage() {
   useAuthContext();
@@ -21,11 +21,14 @@ export default function FavoritesPage() {
   const [tab, setTab] = useState<Tab>('item');
   const [items, setItems] = useState<Record<string, Item | null>>({});
   const [sellers, setSellers] = useState<Record<string, User | null>>({});
+  const [events, setEvents] = useState<Record<string, YardSaleEvent | null>>({});
 
   const itemIds = favorites.filter((f) => f.type === 'item').map((f) => f.targetId);
+  const eventIds = favorites.filter((f) => f.type === 'event').map((f) => f.targetId);
   const sellerIds = favorites.filter((f) => f.type === 'seller').map((f) => f.targetId);
   const itemKey = itemIds.join(',');
   const sellerKey = sellerIds.join(',');
+  const eventKey = eventIds.join(',');
 
   useEffect(() => {
     const missing = itemIds.filter((id) => !(id in items));
@@ -83,6 +86,40 @@ export default function FavoritesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sellerKey]);
 
+  useEffect(() => {
+    const missing = eventIds.filter((id) => !(id in events));
+    if (missing.length === 0) return;
+    let cancelled = false;
+    Promise.all(
+      missing.map(async (id) => {
+        try {
+          const snap = await getDoc(doc(db, 'yardSaleEvents', id));
+          if (!snap.exists()) return [id, null] as const;
+          const data = snap.data();
+          return [
+            id,
+            {
+              ...data,
+              id: snap.id,
+              startDate: data.startDate?.toDate?.() ?? new Date(),
+              endDate: data.endDate?.toDate?.() ?? new Date(),
+              createdAt: data.createdAt?.toDate?.() ?? new Date(),
+              updatedAt: data.updatedAt?.toDate?.() ?? new Date(),
+            } as YardSaleEvent,
+          ] as const;
+        } catch {
+          return [id, null] as const;
+        }
+      })
+    ).then((entries) => {
+      if (!cancelled) setEvents((prev) => ({ ...prev, ...Object.fromEntries(entries) }));
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventKey]);
+
   if (authLoading || (user && loading)) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
@@ -96,7 +133,7 @@ export default function FavoritesPage() {
       <div className="max-w-3xl mx-auto px-4 py-12">
         <EmptyState
           title="Sign in to see your favorites"
-          description="Save items and sellers you like."
+          description="Save items, sellers and events you like."
           icon={<Heart size={36} />}
         />
         <Link href="/auth/login" className="block text-center mt-6 text-brand-700 font-semibold hover:underline">
@@ -108,6 +145,8 @@ export default function FavoritesPage() {
 
   const visibleItems = itemIds.map((id) => items[id]).filter((i): i is Item => !!i);
   const visibleSellers = sellerIds.map((id) => sellers[id]).filter((s): s is User => !!s);
+
+  const visibleEvents = eventIds.map((id) => events[id]).filter((e): e is YardSaleEvent => !!e);
 
   const remove = async (type: Tab, id: string) => {
     try {
@@ -122,7 +161,7 @@ export default function FavoritesPage() {
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       <h1 className="text-3xl font-extrabold text-gray-900 mb-6">Favorites</h1>
       <div className="flex gap-2 mb-6" role="tablist">
-        {(['item', 'seller'] as Tab[]).map((t) => (
+        {(['item', 'seller', 'event'] as Tab[]).map((t) => (
           <button
             key={t}
             role="tab"
@@ -132,7 +171,7 @@ export default function FavoritesPage() {
               tab === t ? 'bg-brand-600 text-white' : 'bg-brand-50 text-brand-700'
             }`}
           >
-            {t === 'item' ? 'Items' : 'Sellers'}
+            {t === 'item' ? 'Items' : t === 'seller' ? 'Sellers' : 'Events'}
           </button>
         ))}
       </div>
@@ -148,6 +187,20 @@ export default function FavoritesPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {visibleItems.map((item) => (
               <ItemCard key={item.id} item={item} />
+            ))}
+          </div>
+        )
+      ) : tab === 'event' ? (
+        visibleEvents.length === 0 ? (
+          <EmptyState
+            title="No favorite events yet"
+            description="Tap the heart on an event to save it here."
+            icon={<Heart size={36} />}
+          />
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {visibleEvents.map((event) => (
+              <EventCard key={event.id} event={event} />
             ))}
           </div>
         )

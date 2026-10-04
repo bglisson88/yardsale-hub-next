@@ -76,7 +76,7 @@ export interface Message {
   read: boolean;
 }
 
-export type FavoriteType = 'item' | 'seller';
+export type FavoriteType = 'item' | 'seller' | 'event';
 
 export interface Favorite {
   id: string;

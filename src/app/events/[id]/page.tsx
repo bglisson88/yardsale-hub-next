@@ -7,7 +7,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { ArrowLeft, Calendar, MapPin, Package, Users } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { useItems } from '@/hooks';
-import { LoadingSpinner, EmptyState, Avatar, ItemCard } from '@/components';
+import { LoadingSpinner, EmptyState, Avatar, ItemCard, FavoriteButton } from '@/components';
 import type { YardSaleEvent } from '@/types';
 
 function EventItems({ eventId }: { eventId: string }) {
@@ -92,7 +92,10 @@ export default function EventDetail() {
           <img src={event.photoURL} alt={event.title} className="w-full h-64 object-cover" />
         )}
         <div className="p-8">
-          <h1 className="text-3xl font-extrabold text-gray-900">{event.title}</h1>
+          <div className="flex items-start justify-between gap-4">
+            <h1 className="text-3xl font-extrabold text-gray-900">{event.title}</h1>
+            <FavoriteButton type="event" targetId={event.id} className="shrink-0 border border-gray-200" />
+          </div>
 
           <div className="flex items-center gap-3 mt-4">
             <Avatar src={event.posterPhotoURL} name={event.posterName} size={40} />

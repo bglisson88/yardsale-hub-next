@@ -20,7 +20,7 @@ export function FavoriteButton({
   const { isFavorite, addFavorite, removeFavorite } = useFavorites();
   const [busy, setBusy] = useState(false);
   const active = isFavorite(type, targetId);
-  const label = type === 'item' ? 'item' : 'seller';
+  const label = type;
 
   const toggle = async (e: React.MouseEvent) => {
     e.preventDefault();
