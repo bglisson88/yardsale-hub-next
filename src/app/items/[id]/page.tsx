@@ -8,6 +8,7 @@ import { ArrowLeft, MapPin, MessageCircle, Package, Tag } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { useAuthStore } from '@/store';
 import { LoadingSpinner, EmptyState, Avatar, FavoriteButton, SellerRating, ReviewForm, ItemCard, EventCard } from '@/components';
+import { useUserProfile } from '@/hooks/useUserProfile';
 import type { Item, YardSaleEvent } from '@/types';
 
 export default function ItemDetail() {
@@ -19,6 +20,7 @@ export default function ItemDetail() {
   const [sellerEvents, setSellerEvents] = useState<YardSaleEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [activePhoto, setActivePhoto] = useState(0);
+  const seller = useUserProfile(item?.userId, item?.sellerName, item?.sellerPhotoURL);
 
   useEffect(() => {
     if (!id) return;
@@ -170,11 +172,11 @@ export default function ItemDetail() {
           )}
 
           <div className="flex items-center gap-3 mt-8 p-4 bg-white rounded-2xl border border-gray-100 shadow-sm">
-            <Avatar src={item.sellerPhotoURL} name={item.sellerName} size={48} />
+            <Avatar src={seller.photoURL} name={seller.name} size={48} />
             <div className="flex-1 min-w-0">
               <p className="text-xs text-gray-500">Sold by</p>
               <Link href={`/sellers/${item.userId}`} className="font-bold text-gray-900 hover:text-brand-700 hover:underline">
-                {item.sellerName || 'Neighbor'}
+                {seller.name || 'Neighbor'}
               </Link>
               <SellerRating sellerId={item.userId} />
             </div>

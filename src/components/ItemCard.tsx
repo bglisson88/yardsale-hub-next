@@ -5,11 +5,13 @@ import { Package, MapPin } from "lucide-react";
 import { Avatar } from "./Avatar";
 import { FavoriteButton } from "./FavoriteButton";
 import { SellerRating } from "./SellerRating";
+import { useUserProfile } from "@/hooks/useUserProfile";
 import type { Item } from "@/types";
 
 const NEW_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
 
 export function ItemCard({ item }: { item: Item }) {
+  const seller = useUserProfile(item.userId, item.sellerName, item.sellerPhotoURL);
   const photo = item.photoURLs?.[0];
   const isNew =
     item.createdAt && Date.now() - item.createdAt.getTime() < NEW_WINDOW_MS;
@@ -60,8 +62,8 @@ export function ItemCard({ item }: { item: Item }) {
               <span className="truncate">{item.location || "Local"}</span>
             </span>
             <Avatar
-              src={item.sellerPhotoURL}
-              name={item.sellerName}
+              src={seller.photoURL}
+              name={seller.name}
               size={24}
             />
           </div>
