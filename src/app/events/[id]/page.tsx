@@ -8,6 +8,7 @@ import { ArrowLeft, Calendar, MapPin, Package, Users } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { useItems } from '@/hooks';
 import { LoadingSpinner, EmptyState, Avatar, ItemCard, FavoriteButton } from '@/components';
+import { useUserProfile } from '@/hooks/useUserProfile';
 import type { YardSaleEvent } from '@/types';
 
 function EventItems({ eventId }: { eventId: string }) {
@@ -32,6 +33,7 @@ export default function EventDetail() {
   const id = params?.id;
   const [event, setEvent] = useState<YardSaleEvent | null>(null);
   const [loading, setLoading] = useState(true);
+  const poster = useUserProfile(event?.userId, event?.posterName, event?.posterPhotoURL);
 
   useEffect(() => {
     if (!id) return;
@@ -98,9 +100,9 @@ export default function EventDetail() {
           </div>
 
           <div className="flex items-center gap-3 mt-4">
-            <Avatar src={event.posterPhotoURL} name={event.posterName} size={40} />
+            <Avatar src={poster.photoURL} name={poster.name} size={40} />
             <p className="text-gray-700">
-              Hosted by <span className="font-semibold">{event.posterName || 'a neighbor'}</span>
+              Hosted by <span className="font-semibold">{poster.name || 'a neighbor'}</span>
             </p>
           </div>
 

@@ -4,9 +4,11 @@ import Link from 'next/link';
 import { Calendar, MapPin, Users } from 'lucide-react';
 import { Avatar } from './Avatar';
 import { FavoriteButton } from './FavoriteButton';
+import { useUserProfile } from '@/hooks/useUserProfile';
 import type { YardSaleEvent } from '@/types';
 
 export function EventCard({ event }: { event: YardSaleEvent }) {
+  const poster = useUserProfile(event.userId, event.posterName, event.posterPhotoURL);
   return (
     <div className="card group relative">
       <div className="absolute top-3 right-3 z-10">
@@ -27,7 +29,7 @@ export function EventCard({ event }: { event: YardSaleEvent }) {
             </div>
           )}
           <span className="absolute top-3 left-3 bg-white/90 rounded-full p-0.5 shadow">
-            <Avatar src={event.posterPhotoURL} name={event.posterName} size={32} />
+            <Avatar src={poster.photoURL} name={poster.name} size={32} />
           </span>
         </div>
         <div className="p-4">
