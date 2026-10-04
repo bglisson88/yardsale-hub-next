@@ -5,6 +5,7 @@ import { Heart } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@/store';
 import { useFavorites } from '@/hooks/useFavorites';
+import { useFavoriteCount } from '@/hooks/useFavoriteCount';
 import type { FavoriteType } from '@/types';
 
 export function FavoriteButton({
@@ -19,6 +20,7 @@ export function FavoriteButton({
   const user = useAuthStore((s) => s.user);
   const { isFavorite, addFavorite, removeFavorite } = useFavorites();
   const [busy, setBusy] = useState(false);
+  const count = useFavoriteCount(type, targetId);
   const active = isFavorite(type, targetId);
   const label = type;
 
@@ -57,9 +59,14 @@ export function FavoriteButton({
       title={title}
       aria-label={title}
       aria-pressed={active}
-      className={`p-2 rounded-full bg-white/90 shadow text-red-500 hover:bg-white transition disabled:opacity-60 disabled:cursor-not-allowed ${className}`}
+      className={`flex items-center gap-1 p-2 rounded-full bg-white/90 shadow text-red-500 hover:bg-white transition disabled:opacity-60 disabled:cursor-not-allowed ${className}`}
     >
       <Heart size={18} fill={active ? 'currentColor' : 'none'} aria-hidden="true" />
+      {count > 0 && (
+        <span className="text-xs font-semibold text-gray-700" aria-label={`${count} favorites`}>
+          {count}
+        </span>
+      )}
     </button>
   );
 }

@@ -3,19 +3,21 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { doc, getDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { ArrowLeft, MapPin, MessageCircle, Package, Tag } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { useAuthStore } from '@/store';
-import { LoadingSpinner, EmptyState, Avatar, FavoriteButton, SellerRating, ReviewForm } from '@/components';
+import { LoadingSpinner, EmptyState, Avatar, FavoriteButton, SellerRating, ReviewForm, ItemCard, EventCard } from '@/components';
 import { useUserProfile } from '@/hooks/useUserProfile';
-import type { Item } from '@/types';
+import type { Item, YardSaleEvent } from '@/types';
 
 export default function ItemDetail() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
   const { user } = useAuthStore();
   const [item, setItem] = useState<Item | null>(null);
+  const [otherItems, setOtherItems] = useState<Item[]>([]);
+  const [sellerEvents, setSellerEvents] = useState<YardSaleEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [activePhoto, setActivePhoto] = useState(0);
   const seller = useUserProfile(item?.userId, item?.sellerName, item?.sellerPhotoURL);
@@ -34,6 +36,42 @@ export default function ItemDetail() {
             createdAt: data.createdAt?.toDate?.() ?? new Date(),
             updatedAt: data.updatedAt?.toDate?.() ?? new Date(),
           } as Item);
+
+          try {
+            const [itemsSnap, eventsSnap] = await Promise.all([
+              getDocs(query(collection(db, 'items'), where('userId', '==', data.userId))),
+              getDocs(query(collection(db, 'yardSaleEvents'), where('userId', '==', data.userId))),
+            ]);
+            setOtherItems(
+              itemsSnap.docs
+                .filter((d) => d.id !== snap.id)
+                .map((d) => {
+                  const o = d.data();
+                  return {
+                    ...o,
+                    id: d.id,
+                    photoURLs: o.photoURLs || [],
+                    createdAt: o.createdAt?.toDate?.() ?? new Date(),
+                    updatedAt: o.updatedAt?.toDate?.() ?? new Date(),
+                  } as Item;
+                })
+            );
+            setSellerEvents(
+              eventsSnap.docs.map((d) => {
+                const o = d.data();
+                return {
+                  ...o,
+                  id: d.id,
+                  startDate: o.startDate?.toDate?.() ?? new Date(),
+                  endDate: o.endDate?.toDate?.() ?? new Date(),
+                  createdAt: o.createdAt?.toDate?.() ?? new Date(),
+                  updatedAt: o.updatedAt?.toDate?.() ?? new Date(),
+                } as YardSaleEvent;
+              })
+            );
+          } catch (error) {
+            console.error('Error loading seller listings:', error);
+          }
         }
       } catch (error) {
         console.error('Error loading item:', error);
@@ -159,6 +197,28 @@ export default function ItemDetail() {
           )}
         </div>
       </div>
+
+      {otherItems.length > 0 && (
+        <section className="mt-12">
+          <h2 className="text-2xl font-extrabold text-gray-900 mb-4">More from this seller</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {otherItems.map((o) => (
+              <ItemCard key={o.id} item={o} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {sellerEvents.length > 0 && (
+        <section className="mt-12">
+          <h2 className="text-2xl font-extrabold text-gray-900 mb-4">Events from this seller</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {sellerEvents.map((e) => (
+              <EventCard key={e.id} event={e} />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

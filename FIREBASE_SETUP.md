@@ -222,10 +222,12 @@ service cloud.firestore {
       allow create: if request.auth.uid == request.resource.data.senderId;
     }
 
-    // Favorites - owner-only read/delete, no updates.
+    // Favorites - any signed-in user can read (needed for favorite counts);
+    // only the owner can delete, no updates.
     // Doc ID must be {uid}_{type}_{targetId}
     match /favorites/{favoriteId} {
-      allow read, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow read: if request.auth != null;
+      allow delete: if request.auth != null && request.auth.uid == resource.data.userId;
       allow create: if request.auth != null
                     && request.resource.data.userId == request.auth.uid
                     && request.resource.data.type in ['item', 'seller', 'event']
