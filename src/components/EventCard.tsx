@@ -3,11 +3,16 @@
 import Link from 'next/link';
 import { Calendar, MapPin, Users } from 'lucide-react';
 import { Avatar } from './Avatar';
+import { FavoriteButton } from './FavoriteButton';
 import type { YardSaleEvent } from '@/types';
 
 export function EventCard({ event }: { event: YardSaleEvent }) {
   return (
-    <Link href={`/events/${event.id}`} className="card group block">
+    <div className="card group relative">
+      <div className="absolute top-3 right-3 z-10">
+        <FavoriteButton type="event" targetId={event.id} />
+      </div>
+      <Link href={`/events/${event.id}`} className="block">
       <div className="relative h-40 bg-gradient-to-br from-accent-100 to-brand-100 overflow-hidden">
         {event.photoURL ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -21,7 +26,7 @@ export function EventCard({ event }: { event: YardSaleEvent }) {
             <Calendar size={40} aria-hidden="true" />
           </div>
         )}
-        <span className="absolute top-3 right-3 bg-white/90 rounded-full p-0.5 shadow">
+        <span className="absolute top-3 left-3 bg-white/90 rounded-full p-0.5 shadow">
           <Avatar src={event.posterPhotoURL} name={event.posterName} size={32} />
         </span>
       </div>
@@ -45,6 +50,7 @@ export function EventCard({ event }: { event: YardSaleEvent }) {
           </div>
         </div>
       </div>
-    </Link>
+      </Link>
+    </div>
   );
 }

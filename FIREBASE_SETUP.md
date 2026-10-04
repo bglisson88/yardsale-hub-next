@@ -82,7 +82,7 @@ Firestore will auto-create collections as you add data, but here's what you'll h
 - **items** - Items for sale
 - **yardSaleEvents** - Yard sale events
 - **messages** - Messages between users
-- **favorites** - Favorited items and sellers (doc ID `{userId}_{type}_{targetId}`; rules must be published in the Firebase console)
+- **favorites** - Favorited items, sellers and events (doc ID `{userId}_{type}_{targetId}`; rules must be published in the Firebase console)
 
 No need to create these manually now—they'll be created automatically.
 
@@ -228,7 +228,7 @@ service cloud.firestore {
       allow read, delete: if request.auth != null && request.auth.uid == resource.data.userId;
       allow create: if request.auth != null
                     && request.resource.data.userId == request.auth.uid
-                    && request.resource.data.type in ['item', 'seller']
+                    && request.resource.data.type in ['item', 'seller', 'event']
                     && favoriteId == request.auth.uid + '_' + request.resource.data.type + '_' + request.resource.data.targetId;
       allow update: if false;
     }
