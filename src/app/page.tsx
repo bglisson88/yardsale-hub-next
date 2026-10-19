@@ -80,7 +80,7 @@ export default function Home() {
             <span className="bg-gradient-to-r from-emerald-400 to-amber-400 bg-clip-text text-transparent">Nearby Deals.</span>
           </h1>
           <p className="text-base sm:text-lg leading-relaxed max-w-xl mb-8">
-            Discover local yard sales, estate sales, and secondhand treasures. Find something you love, give your things a new home, and connect with your neighbors.
+            Discover local yard sales, estate sales, and secondhand treasures
           </p>
 
           <form
