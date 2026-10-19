@@ -38,7 +38,7 @@ const config: Config = {
         secondary: '#0f766e',
       },
       fontFamily: {
-        sans: ['var(--font-poppins)', 'system-ui', 'sans-serif'],
+        sans: ['var(--font-brand)', 'system-ui', 'sans-serif'],
         brand: ['var(--font-brand)', 'system-ui', 'sans-serif'],
       },
       spacing: {

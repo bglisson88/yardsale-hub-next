@@ -1,12 +1,12 @@
 import type { Metadata } from 'next';
-import { Nunito } from 'next/font/google';
+import { Plus_Jakarta_Sans } from 'next/font/google';
 import { Navbar, Footer } from '@/components';
 import './globals.css';
 import { Toaster } from 'react-hot-toast';
 
-const brandFont = Nunito({
+const brandFont = Plus_Jakarta_Sans({
   subsets: ['latin'],
-  weight: ['700', '800'],
+  weight: ['400', '500', '600', '700', '800'],
   variable: '--font-brand',
   display: 'swap',
 });

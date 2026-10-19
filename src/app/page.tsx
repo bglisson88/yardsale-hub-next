@@ -4,10 +4,11 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
-import { Search, MapPin, ArrowRight, Radio } from 'lucide-react';
+import { Search, MapPin, ArrowRight, Radio, Lamp, Sparkles } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { useItems } from '@/hooks';
 import { ItemCard, EventCard, EmptyState } from '@/components';
+import { Logo } from '@/components/Logo';
 import { CATEGORIES, CATEGORY_ICONS, CITIES, SUBCATEGORIES } from '@/lib/constants';
 import type { YardSaleEvent } from '@/types';
 
@@ -51,47 +52,52 @@ export default function Home() {
   };
 
   return (
-    <div>
+    <div className="home-theme bg-slate-950 text-slate-300 pb-16">
       {/* Hero */}
-      <section className="relative overflow-hidden bg-gradient-to-br from-brand-500 via-brand-600 to-accent-700 text-white">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+        <div className="relative overflow-hidden rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950">
         <div
-          className="absolute inset-0 opacity-20"
-          style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1.5px, transparent 0)', backgroundSize: '28px 28px' }}
+          className="absolute inset-0 opacity-[0.08]"
+          style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, #a7f3d0 1px, transparent 0)', backgroundSize: '24px 24px' }}
           aria-hidden="true"
         />
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-28 text-center">
-          <p className="inline-block bg-white/20 backdrop-blur px-4 py-1 rounded-full text-sm font-semibold mb-6">
-            🏷️ Mid-County · Orange · Beaumont
+        <div className="absolute -right-24 top-12 h-80 w-80 rounded-full bg-emerald-500/10 blur-3xl" aria-hidden="true" />
+        <div className="relative grid lg:grid-cols-12 items-center gap-8 px-5 py-10 sm:p-10 lg:p-12 lg:py-16">
+          <div className="min-w-0 lg:col-span-7">
+          <p className="inline-flex items-center gap-2 border border-emerald-400/20 bg-emerald-400/10 text-emerald-300 px-3 py-2 rounded-full text-xs sm:text-sm font-semibold mb-6">
+            <MapPin size={14} className="shrink-0" aria-hidden="true" />
+            {CITIES.join(' · ')}
           </p>
-          <h1 className="text-4xl md:text-6xl font-extrabold leading-tight mb-4">
-            Treasure hunting,<br />right in your neighborhood.
+          <h1 className="text-4xl sm:text-5xl xl:text-6xl font-extrabold leading-[1.12] tracking-tight text-white mb-5">
+            Turn Neighborhood Treasures Into{' '}
+            <span className="bg-gradient-to-r from-emerald-400 to-amber-400 bg-clip-text text-transparent">Nearby Deals.</span>
           </h1>
-          <p className="text-lg md:text-xl text-white/90 max-w-2xl mx-auto mb-10">
-            Find local yard sales, snag great deals, and sell what you no longer need.
+          <p className="text-base sm:text-lg leading-relaxed max-w-xl mb-8">
+            Discover local yard sales and secondhand treasures. Find something you love, give your things a new home, and connect with your neighbors.
           </p>
 
           <form
             onSubmit={handleSearch}
-            className="max-w-3xl mx-auto bg-white rounded-2xl shadow-2xl p-3 flex flex-col md:flex-row gap-3 text-gray-900"
+            className="bg-slate-950/80 border border-slate-700 rounded-2xl shadow-xl p-2 flex flex-col xl:flex-row gap-2"
           >
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-3 text-gray-400" size={20} aria-hidden="true" />
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-3 top-3 text-slate-400" size={20} aria-hidden="true" />
               <input
                 type="text"
                 aria-label="Search items"
                 placeholder="Search items..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                className="w-full min-w-0 bg-slate-900 text-white placeholder:text-slate-400 pl-10 pr-3 py-2.5 rounded-xl focus:ring-2 focus:ring-emerald-400"
               />
             </div>
-            <div className="relative md:w-52">
-              <MapPin className="absolute left-3 top-3 text-gray-400" size={20} aria-hidden="true" />
+            <div className="relative xl:w-40">
+              <MapPin className="absolute left-3 top-3 text-slate-400 pointer-events-none" size={20} aria-hidden="true" />
               <select
                 aria-label="City"
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                className="w-full bg-slate-900 text-white pl-10 pr-3 py-2.5 rounded-xl focus:ring-2 focus:ring-emerald-400"
               >
                 <option value="">All cities</option>
                 {CITIES.map((c) => (
@@ -99,43 +105,76 @@ export default function Home() {
                 ))}
               </select>
             </div>
-            <button type="submit" className="btn-primary">Search</button>
+            <button type="submit" className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-slate-950 hover:bg-emerald-500 transition-colors">Search</button>
           </form>
 
-          <div className="flex flex-wrap justify-center gap-4 mt-8">
-            <Link href="/items/new" className="px-6 py-3 rounded-xl font-bold bg-white text-brand-700 hover:bg-brand-50 shadow-lg transition">
+          <div className="flex flex-wrap items-center gap-2 mt-4 text-xs">
+            <span className="text-slate-400">Popular:</span>
+            {CATEGORIES.slice(0, 3).map((category) => (
+              <Link key={category} href={`/items?category=${encodeURIComponent(category)}`} className="rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-slate-300 hover:border-emerald-400 hover:text-emerald-300 transition-colors">
+                {category}
+              </Link>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap gap-3 mt-7">
+            <Link href="/items/new" className="px-4 py-3 rounded-xl text-sm font-bold bg-emerald-600 text-slate-950 hover:bg-emerald-500 transition-colors">
               Post an Item
             </Link>
-            <Link href="/events" className="px-6 py-3 rounded-xl font-bold border-2 border-white text-white hover:bg-white/10 transition">
-              Find Sales Near You
+            <Link href="/events" className="inline-flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-bold border border-slate-600 text-white hover:bg-slate-800 transition-colors">
+              Find Sales Near You <ArrowRight size={16} aria-hidden="true" />
             </Link>
           </div>
+          </div>
+
+          <div className="relative lg:col-span-5 flex items-center justify-center h-80 sm:h-96 select-none pointer-events-none" aria-hidden="true">
+            <div className="absolute h-64 w-64 sm:h-80 sm:w-80 rounded-full border border-emerald-400/20 bg-emerald-500/5" />
+            <div className="absolute h-48 w-48 sm:h-60 sm:w-60 rounded-full border border-amber-400/20 bg-amber-400/5" />
+            <div className="treasure-float relative w-48 sm:w-60 rounded-3xl border-2 border-amber-400/70 bg-slate-900 p-5 sm:p-7 text-center shadow-2xl shadow-black/40 -rotate-6">
+              <div className="flex justify-center mb-3"><Logo size={112} /></div>
+              <p className="text-white font-extrabold text-xl">A new life for<br />old favorites.</p>
+              <p className="mt-3 text-xs font-semibold text-emerald-400">Discover. Reuse. Repeat.</p>
+            </div>
+            <div className="treasure-float-delayed absolute left-0 top-5 sm:top-8 rounded-2xl border border-slate-700 bg-slate-800 p-3 sm:p-4 shadow-xl -rotate-12">
+              <Lamp size={28} className="text-amber-400 mb-2" />
+              <p className="text-sm font-bold text-white">Hidden gems</p>
+              <p className="text-xs text-slate-300 mt-1">Secondhand charm</p>
+            </div>
+            <div className="treasure-float-delayed absolute right-0 bottom-2 sm:bottom-6 rounded-2xl border border-slate-700 bg-slate-800 p-3 sm:p-4 shadow-xl rotate-6">
+              <div className="flex items-center gap-2 mb-1"><MapPin size={20} className="text-emerald-400" /><p className="text-sm font-bold text-white">Keep it local</p></div>
+              <p className="text-xs text-slate-300">Meet your neighborhood</p>
+            </div>
+            <Sparkles className="absolute right-4 top-12 text-amber-400" size={24} />
+          </div>
+        </div>
         </div>
       </section>
 
       {/* Category quick links */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-8 relative z-10">
+      <section aria-labelledby="categories-heading" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10">
+        <h2 id="categories-heading" className="text-sm font-semibold text-slate-300 mb-4">A little of everything. Something for you.</h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
           {CATEGORIES.map((c) => (
             <button
               key={c}
               type="button"
               aria-expanded={selectedCategory === c}
+              aria-controls={selectedCategory === c ? 'category-subcategories' : undefined}
               onClick={() => setSelectedCategory(selectedCategory === c ? null : c)}
-              className={`bg-white rounded-2xl shadow-md hover:shadow-xl hover:-translate-y-1 transition p-4 text-center ${
-                selectedCategory === c ? 'ring-2 ring-brand-500' : ''
+              className={`bg-slate-900 border rounded-2xl hover:border-emerald-400 transition-colors p-3 text-center ${
+               selectedCategory === c ? 'border-emerald-400 ring-1 ring-emerald-400' : 'border-slate-800'
               }`}
             >
-              <div className="text-3xl mb-1" aria-hidden="true">{CATEGORY_ICONS[c]}</div>
-              <p className="text-sm font-semibold text-gray-800">{c}</p>
+              <div className="text-2xl mb-2" aria-hidden="true">{CATEGORY_ICONS[c]}</div>
+              <p className="text-xs font-semibold text-slate-300">{c}</p>
             </button>
           ))}
         </div>
         {selectedCategory && (
-          <div className="mt-4 bg-white rounded-2xl shadow-md p-4 flex flex-wrap gap-2" role="group" aria-label={`${selectedCategory} subcategories`}>
+          <div id="category-subcategories" className="mt-4 bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-wrap gap-2" role="group" aria-label={`${selectedCategory} subcategories`}>
             <Link
               href={`/items?category=${encodeURIComponent(selectedCategory)}`}
-              className="px-4 py-1.5 rounded-full text-sm font-semibold bg-brand-600 text-white"
+              className="px-4 py-2 rounded-full text-sm font-semibold bg-emerald-600 text-slate-950 hover:bg-emerald-500"
             >
               All {selectedCategory}
             </Link>
@@ -143,7 +182,7 @@ export default function Home() {
               <Link
                 key={sub}
                 href={`/items?category=${encodeURIComponent(selectedCategory)}&subcategory=${encodeURIComponent(sub)}`}
-                className="px-4 py-1.5 rounded-full text-sm font-semibold bg-white text-gray-700 border border-gray-200 hover:border-brand-400"
+                className="px-4 py-2 rounded-full text-sm font-semibold bg-slate-800 text-slate-300 border border-slate-700 hover:border-emerald-400"
               >
                 {sub}
               </Link>
@@ -154,38 +193,44 @@ export default function Home() {
 
       {/* Latest Items */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <div className="flex justify-between items-end mb-6">
-          <h2 className="text-3xl font-extrabold text-gray-900">Latest Items</h2>
-          <Link href="/items" className="flex items-center gap-1 font-semibold text-brand-700 hover:underline">
+        <div className="flex flex-wrap gap-4 justify-between items-end mb-6">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest text-emerald-400 mb-2">Fresh finds</p>
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-white">Latest Items</h2>
+          </div>
+          <Link href="/items" className="flex items-center gap-1 text-sm font-semibold text-emerald-400 hover:underline">
             View all <ArrowRight size={16} aria-hidden="true" />
           </Link>
         </div>
         {items.length === 0 ? (
-          <EmptyState title="No items yet" description="Be the first to post something for sale!" />
+          <EmptyState appearance="dark" title="No items yet" description="Be the first to post something for sale!" />
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {items.slice(0, 4).map((item) => (
-              <ItemCard key={item.id} item={item} />
+              <ItemCard key={item.id} item={item} appearance="dark" />
             ))}
           </div>
         )}
       </section>
 
       {/* Upcoming Events */}
-      <section className="bg-accent-50 py-16">
+      <section className="border-y border-slate-800 bg-slate-900/40 py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-end mb-6">
-            <h2 className="text-3xl font-extrabold text-gray-900">Upcoming Events</h2>
-            <Link href="/events" className="flex items-center gap-1 font-semibold text-accent-700 hover:underline">
+          <div className="flex flex-wrap gap-4 justify-between items-end mb-6">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-amber-400 mb-2">Around the neighborhood</p>
+              <h2 className="text-2xl sm:text-3xl font-extrabold text-white">Upcoming Events</h2>
+            </div>
+            <Link href="/events" className="flex items-center gap-1 text-sm font-semibold text-emerald-400 hover:underline">
               See the map <ArrowRight size={16} aria-hidden="true" />
             </Link>
           </div>
           {events.length === 0 ? (
-            <EmptyState title="No upcoming events" description="Hosting a sale? Put it on the map!" />
+            <EmptyState appearance="dark" title="No upcoming events" description="Hosting a sale? Put it on the map!" />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {events.map((event) => (
-                <EventCard key={event.id} event={event} />
+                <EventCard key={event.id} event={event} appearance="dark" />
               ))}
             </div>
           )}
@@ -193,15 +238,15 @@ export default function Home() {
       </section>
 
       {/* Coming soon teaser */}
-      <section className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <div className="rounded-3xl bg-gradient-to-r from-accent-800 to-accent-600 text-white p-10 flex flex-col md:flex-row items-center gap-6">
-          <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0" aria-hidden="true">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6 sm:p-10 flex flex-col md:flex-row items-start md:items-center gap-6">
+          <div className="w-16 h-16 rounded-2xl bg-amber-400/10 text-amber-400 flex items-center justify-center flex-shrink-0" aria-hidden="true">
             <Radio size={32} />
           </div>
           <div>
-            <p className="text-sm font-bold uppercase tracking-wide text-accent-100">Coming soon</p>
-            <h2 className="text-2xl font-extrabold mb-1">Live Sales &amp; Auctions</h2>
-            <p className="text-accent-50">
+            <p className="text-xs font-bold uppercase tracking-widest text-amber-400 mb-2">Coming soon</p>
+            <h2 className="text-2xl font-extrabold text-white mb-2">Live Sales &amp; Auctions</h2>
+            <p className="text-slate-300">
               Host a virtual yard sale, show off items live, and let neighbors bid in real time. Stay tuned!
             </p>
           </div>
@@ -209,11 +254,11 @@ export default function Home() {
       </section>
 
       {/* CTA */}
-      <section className="bg-gradient-to-r from-brand-600 to-brand-700 py-16">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="rounded-3xl border border-emerald-900 bg-gradient-to-br from-slate-900 to-emerald-950 px-6 py-12 text-center">
           <h2 className="text-3xl font-extrabold text-white mb-4">Ready to clear out the clutter?</h2>
-          <p className="text-brand-100 text-lg mb-8">Join your neighbors buying and selling locally.</p>
-          <Link href="/auth/signup" className="inline-block px-8 py-3 bg-white text-brand-700 rounded-xl hover:bg-brand-50 transition font-bold text-lg">
+          <p className="text-slate-300 text-lg mb-8">Join your neighbors buying and selling locally.</p>
+          <Link href="/auth/signup" className="inline-block px-8 py-3 bg-emerald-600 text-slate-950 rounded-xl hover:bg-emerald-500 transition-colors font-bold">
             Create Account
           </Link>
         </div>

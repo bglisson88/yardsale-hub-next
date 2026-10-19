@@ -25,7 +25,10 @@ export function Navbar() {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMenuOpen(false);
+      if (e.key === 'Escape') {
+        setMenuOpen(false);
+        setIsOpen(false);
+      }
     };
     document.addEventListener('mousedown', onClick);
     document.addEventListener('keydown', onKey);
@@ -59,25 +62,28 @@ export function Navbar() {
     }
   };
 
-  const navLink = 'text-gray-700 font-medium hover:text-brand-600 transition';
+  const navLink = 'text-slate-300 font-semibold hover:text-emerald-400 transition-colors';
+  const actionLink = 'inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-slate-950 hover:bg-emerald-500 transition-colors';
+  const mobileLink = 'block px-4 py-2.5 text-slate-300 hover:bg-slate-800 hover:text-white rounded-xl';
 
   return (
-    <nav className="sticky top-0 z-[1100] bg-white/80 backdrop-blur-md border-b border-brand-100 shadow-sm">
+    <nav aria-label="Main navigation" className="site-nav sticky top-0 z-[1100] bg-slate-950/95 py-3 text-white backdrop-blur-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-20">
-          <Link href="/" className="flex items-center gap-3 flex-shrink-0">
-            <Logo size={56} />
-            <span className="hidden sm:block font-brand font-extrabold text-3xl tracking-tight text-gray-900">
-              YardSale Hub
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 px-3 shadow-lg shadow-black/20 sm:px-5">
+        <div className="flex justify-between items-center h-16">
+          <Link href="/" aria-label="YardSale Hub home" className="flex items-center gap-2 rounded-lg">
+            <span aria-hidden="true"><Logo size={44} /></span>
+            <span className="font-brand font-extrabold text-lg sm:text-2xl tracking-tight">
+              YardSale <span className="text-emerald-400">Hub</span>
             </span>
           </Link>
 
           {/* Desktop Menu */}
-          <div className="hidden md:flex items-center gap-8">
+          <div className="hidden md:flex items-center gap-6">
             <Link href="/items" className={navLink}>Browse</Link>
             <Link href="/events" className={navLink}>Events</Link>
             {user && (
-              <Link href="/items/new" className="btn-primary !px-4 !py-2 text-sm">
+              <Link href="/items/new" className={actionLink}>
                 <PlusCircle size={16} aria-hidden="true" /> Post Item
               </Link>
             )}
@@ -90,19 +96,19 @@ export function Navbar() {
                   aria-haspopup="menu"
                   aria-expanded={menuOpen}
                   aria-label="Open account menu"
-                  className="flex items-center gap-1 rounded-full ring-2 ring-brand-300 hover:ring-brand-500 transition p-0.5"
+                  className="flex items-center gap-1 rounded-full ring-2 ring-slate-600 hover:ring-emerald-400 transition p-0.5"
                 >
                   <Avatar src={user.photoURL} name={user.displayName} size={36} />
-                  <ChevronDown size={14} className="text-gray-500 mr-1" aria-hidden="true" />
+                  <ChevronDown size={14} className="text-slate-300 mr-1" aria-hidden="true" />
                 </button>
                 {menuOpen && (
                   <div
                     role="menu"
-                    className="absolute right-0 mt-2 w-52 bg-white rounded-xl shadow-xl border border-gray-100 py-2"
+                    className="absolute right-0 mt-2 w-52 bg-slate-900 rounded-xl shadow-xl border border-slate-700 py-2"
                   >
-                    <div className="px-4 pb-2 mb-1 border-b border-gray-100">
-                      <p className="font-semibold text-gray-900 truncate">{user.displayName}</p>
-                      <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                    <div className="px-4 pb-2 mb-1 border-b border-slate-700">
+                      <p className="font-semibold text-white truncate">{user.displayName}</p>
+                      <p className="text-xs text-slate-300 truncate">{user.email}</p>
                     </div>
                     {menuLinks.map((l) => (
                       <Link
@@ -110,7 +116,7 @@ export function Navbar() {
                         href={l.href}
                         role="menuitem"
                         onClick={() => setMenuOpen(false)}
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-brand-50"
+                        className="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white"
                       >
                         {l.label}
                       </Link>
@@ -118,7 +124,7 @@ export function Navbar() {
                     <button
                       role="menuitem"
                       onClick={handleSignOut}
-                      className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                      className="w-full text-left px-4 py-2 text-sm text-red-300 hover:bg-slate-800"
                     >
                       Sign Out
                     </button>
@@ -126,7 +132,7 @@ export function Navbar() {
                 )}
               </div>
             ) : (
-              <Link href="/auth/login" className="btn-primary !px-4 !py-2 text-sm">
+              <Link href="/auth/login" className={actionLink}>
                 Sign In
               </Link>
             )}
@@ -134,10 +140,11 @@ export function Navbar() {
 
           {/* Mobile Menu Button */}
           <button
-            className="md:hidden"
+            className="md:hidden rounded-lg p-2 text-slate-300 hover:bg-slate-800 hover:text-white"
             onClick={() => setIsOpen(!isOpen)}
             aria-label={isOpen ? 'Close menu' : 'Open menu'}
             aria-expanded={isOpen}
+            aria-controls="mobile-navigation"
           >
             {isOpen ? <X size={24} /> : <Menu size={24} />}
           </button>
@@ -145,18 +152,18 @@ export function Navbar() {
 
         {/* Mobile Menu */}
         {isOpen && (
-          <div className="md:hidden pb-4 space-y-1">
+          <div id="mobile-navigation" className="md:hidden max-h-[calc(100dvh-6rem)] overflow-y-auto border-t border-slate-800 py-3 space-y-1">
             {user && (
-              <div className="flex items-center gap-3 px-4 py-3 mb-2 bg-brand-50 rounded-xl">
+              <div className="flex items-center gap-3 px-4 py-3 mb-2 bg-slate-800 rounded-xl">
                 <Avatar src={user.photoURL} name={user.displayName} size={40} />
                 <div className="min-w-0">
-                  <p className="font-semibold text-gray-900 truncate">{user.displayName}</p>
-                  <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                  <p className="font-semibold text-white truncate">{user.displayName}</p>
+                  <p className="text-xs text-slate-300 truncate">{user.email}</p>
                 </div>
               </div>
             )}
-            <Link href="/items" onClick={() => setIsOpen(false)} className="block px-4 py-2 text-gray-700 hover:bg-brand-50 rounded">Browse</Link>
-            <Link href="/events" onClick={() => setIsOpen(false)} className="block px-4 py-2 text-gray-700 hover:bg-brand-50 rounded">Events</Link>
+            <Link href="/items" onClick={() => setIsOpen(false)} className={mobileLink}>Browse</Link>
+            <Link href="/events" onClick={() => setIsOpen(false)} className={mobileLink}>Events</Link>
             {user ? (
               <>
                 {menuLinks.map((l) => (
@@ -164,25 +171,26 @@ export function Navbar() {
                     key={l.label}
                     href={l.href}
                     onClick={() => setIsOpen(false)}
-                    className="block px-4 py-2 text-gray-700 hover:bg-brand-50 rounded"
+                    className={mobileLink}
                   >
                     {l.label}
                   </Link>
                 ))}
                 <button
                   onClick={handleSignOut}
-                  className="w-full text-left px-4 py-2 text-red-600 hover:bg-red-50 rounded"
+                  className="w-full text-left px-4 py-2.5 text-red-300 hover:bg-slate-800 rounded-xl"
                 >
                   Sign Out
                 </button>
               </>
             ) : (
-              <Link href="/auth/login" onClick={() => setIsOpen(false)} className="block px-4 py-2 bg-brand-600 text-white rounded hover:bg-brand-700 text-center font-semibold">
+              <Link href="/auth/login" onClick={() => setIsOpen(false)} className={`${actionLink} w-full`}>
                 Sign In
               </Link>
             )}
           </div>
         )}
+        </div>
       </div>
     </nav>
   );

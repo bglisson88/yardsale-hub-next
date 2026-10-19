@@ -1,11 +1,14 @@
 'use client';
 
+import { useId } from 'react';
+
 interface LogoProps {
   size?: number;
   className?: string;
 }
 
 export function Logo({ size = 32, className = '' }: LogoProps) {
+  const id = useId();
   return (
     <svg
       width={size}
@@ -17,15 +20,15 @@ export function Logo({ size = 32, className = '' }: LogoProps) {
       aria-label="YardSale Hub Logo"
     >
       <defs>
-        <linearGradient id="pinGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <linearGradient id={`${id}-pinGrad`} x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#059669" />
           <stop offset="100%" stopColor="#047857" />
         </linearGradient>
-        <linearGradient id="frameGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+        <linearGradient id={`${id}-frameGrad`} x1="0%" y1="0%" x2="0%" y2="100%">
           <stop offset="0%" stopColor="#FBBF24" />
           <stop offset="100%" stopColor="#D97706" />
         </linearGradient>
-        <filter id="shadow3d" x="-20%" y="-20%" width="140%" height="140%">
+        <filter id={`${id}-shadow3d`} x="-20%" y="-20%" width="140%" height="140%">
           <feDropShadow dx="0" dy="16" stdDeviation="20" floodColor="#000000" floodOpacity="0.4" />
         </filter>
       </defs>
@@ -33,15 +36,15 @@ export function Logo({ size = 32, className = '' }: LogoProps) {
       {/* Outer Pin Shape with Depth Gradient */}
       <path
         d="M256 32 C150 32 80 102 80 208 C80 320 256 480 256 480 C256 480 432 320 432 208 C432 102 362 32 256 32 Z"
-        fill="url(#pinGrad)"
-        filter="url(#shadow3d)"
+        fill={`url(#${id}-pinGrad)`}
+        filter={`url(#${id}-shadow3d)`}
       />
 
       {/* Folded Yard Sign Frame Overlay (Amber Gold) */}
       <path
         d="M128 140 C128 120 144 104 164 104 L348 104 C368 104 384 120 384 140 L384 260 C384 280 368 296 348 296 L164 296 C144 296 128 280 128 260 Z"
         fill="none"
-        stroke="url(#frameGrad)"
+        stroke={`url(#${id}-frameGrad)`}
         strokeWidth="22"
         strokeLinejoin="round"
       />
