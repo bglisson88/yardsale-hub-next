@@ -56,9 +56,9 @@ export function CategoryNavigation() {
       const next = (index + (event.key === 'ArrowRight' ? 1 : -1) + CATEGORIES.length) % CATEGORIES.length;
       triggerRefs.current[next]?.focus();
       setOpenCategory(next);
-    } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    } else if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) {
       event.preventDefault();
-      const position = event.key === 'ArrowDown' ? 'first' : 'last';
+      const position = event.key === 'ArrowUp' ? 'last' : 'first';
       if (openCategory === index) {
         const links = panelRefs.current[index]?.querySelectorAll<HTMLAnchorElement>('a');
         links?.[position === 'first' ? 0 : links.length - 1]?.focus();
@@ -109,7 +109,9 @@ export function CategoryNavigation() {
               className="border-b border-slate-800 last:border-b-0 md:border-0"
               onPointerEnter={(event) => {
                 if (event.pointerType === 'mouse' && window.matchMedia('(min-width: 768px)').matches) {
-                  setOpenCategory(index);
+                  if (!panelRefs.current.some((panel) => panel?.contains(document.activeElement))) {
+                    setOpenCategory(index);
+                  }
                 }
               }}
             >
