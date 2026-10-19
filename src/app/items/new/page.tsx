@@ -28,7 +28,7 @@ export default function NewItem() {
     price: '',
     originalPrice: '',
     condition: 'good',
-    location: '',
+    location: user && isValidZip(user.location) ? user.location : '',
   });
   const router = useRouter();
 
@@ -86,7 +86,7 @@ export default function NewItem() {
         setLoading(false);
         return;
       }
-      const zipCode = formData.location || (isValidZip(user.location) ? user.location : '');
+      const zipCode = formData.location;
       const coordinates = await lookupZip(zipCode);
 
       // Upload photos
@@ -249,7 +249,7 @@ export default function NewItem() {
               pattern="[0-9]{5}" maxLength={5} required
               title="Enter a 5-digit US ZIP code" placeholder="ZIP code"
               name="location"
-              value={formData.location || (isValidZip(user.location) ? user.location : '')}
+              value={formData.location}
               onChange={handleInputChange}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
             />

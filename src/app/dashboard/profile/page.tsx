@@ -22,6 +22,7 @@ export default function EditProfile() {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [locationChanged, setLocationChanged] = useState(false);
   const [formData, setFormData] = useState({ displayName: '', location: '', bio: '' });
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoURL, setPhotoURL] = useState<string | null>(null);
@@ -58,6 +59,7 @@ export default function EditProfile() {
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    if (e.target.name === 'location') setLocationChanged(true);
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
@@ -99,7 +101,7 @@ export default function EditProfile() {
 
       const updates = {
         displayName: formData.displayName.trim(),
-        location: formData.location,
+        location: locationChanged ? formData.location : user.location || '',
         bio: formData.bio,
         photoURL: finalPhoto,
       };

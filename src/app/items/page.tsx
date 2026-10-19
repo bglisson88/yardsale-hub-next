@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { Search, PackageSearch } from 'lucide-react';
@@ -39,21 +39,20 @@ function BrowseContent() {
     setSearchText(urlSearch);
   }, [urlSearch]);
 
-  const updateParam = (key: string, value: string) => {
+  const updateParam = useCallback((key: string, value: string) => {
     const next = new URLSearchParams(params.toString());
     if (key === 'category') next.delete('subcategory');
     if (value) next.set(key, value);
     else next.delete(key);
     const qs = next.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-  };
+  }, [params, pathname, router]);
 
   useEffect(() => {
     if (searchText === urlSearch) return;
     const t = setTimeout(() => updateParam('search', searchText.trim()), 300);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchText]);
+  }, [searchText, urlSearch, updateParam]);
 
   const filtered = useMemo(() => {
     const q = urlSearch.toLowerCase();

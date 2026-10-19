@@ -45,7 +45,7 @@ export default function NewEvent() {
     title: '',
     description: '',
     address: '',
-    location: '',
+    location: user && isValidZip(user.location) ? user.location : '',
     startDate: '',
     startTime: '',
     endDate: '',
@@ -95,7 +95,7 @@ export default function NewEvent() {
         setLoading(false);
         return;
       }
-      const zipCode = formData.location || (isValidZip(user.location) ? user.location : '');
+      const zipCode = formData.location;
       const zipCenter = await lookupZip(zipCode);
       const addressCoordinates = await geocodeAddress(formData.address, zipCode);
       const coordinates = addressCoordinates || zipCenter;
@@ -197,7 +197,7 @@ export default function NewEvent() {
               pattern="[0-9]{5}" maxLength={5} required
               title="Enter a 5-digit US ZIP code" placeholder="ZIP code"
               name="location"
-              value={formData.location || (isValidZip(user.location) ? user.location : '')}
+              value={formData.location}
               onChange={handleInputChange}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
             />

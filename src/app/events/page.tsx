@@ -65,14 +65,6 @@ function EventsContent() {
     (!locationFilter || event.location === locationFilter) &&
     (!search || `${event.title} ${event.description || ''}`.toLowerCase().includes(search.toLowerCase())));
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <LoadingSpinner />
-      </div>
-    );
-  }
-
   const toggle = (active: boolean) =>
     `flex items-center gap-2 px-4 py-2 text-sm font-semibold transition ${
       active ? 'bg-brand-600 text-white' : 'bg-white text-gray-700 hover:bg-brand-50'
@@ -116,7 +108,7 @@ function EventsContent() {
         {nearby.warning && <p className="text-sm text-gray-600" role="status">{nearby.warning}</p>}
         {(nearby.error || nearby.warning) && <button type="button" onClick={nearby.retry} className="text-sm text-brand-700 underline">Refresh location results</button>}
       </div>
-      {nearby.loading ? <LoadingSpinner /> : error || nearby.error ? (
+      {loading || nearby.loading ? <LoadingSpinner /> : error || nearby.error ? (
         <EmptyState title="Couldn't load events" description={error || nearby.error} />
       ) : view === 'map' ? (
         <EventsMap events={filteredEvents} />
