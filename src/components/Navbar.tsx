@@ -16,6 +16,8 @@ export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const accountButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileButtonRef = useRef<HTMLButtonElement>(null);
   const router = useRouter();
   useAuthContext();
   const { user, loading } = useAuthStore();
@@ -26,6 +28,8 @@ export function Navbar() {
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (menuOpen) accountButtonRef.current?.focus();
+        if (isOpen) mobileButtonRef.current?.focus();
         setMenuOpen(false);
         setIsOpen(false);
       }
@@ -36,7 +40,7 @@ export function Navbar() {
       document.removeEventListener('mousedown', onClick);
       document.removeEventListener('keydown', onKey);
     };
-  }, []);
+  }, [isOpen, menuOpen]);
 
   const menuLinks = user
     ? [
@@ -92,6 +96,7 @@ export function Navbar() {
             ) : user ? (
               <div className="relative" ref={menuRef}>
                 <button
+                  ref={accountButtonRef}
                   onClick={() => setMenuOpen(!menuOpen)}
                   aria-haspopup="menu"
                   aria-expanded={menuOpen}
@@ -140,6 +145,7 @@ export function Navbar() {
 
           {/* Mobile Menu Button */}
           <button
+            ref={mobileButtonRef}
             className="md:hidden rounded-lg p-2 text-slate-300 hover:bg-slate-800 hover:text-white"
             onClick={() => setIsOpen(!isOpen)}
             aria-label={isOpen ? 'Close menu' : 'Open menu'}
