@@ -11,7 +11,8 @@ import { Upload, ArrowLeft } from 'lucide-react';
 import { useAuthStore } from '@/store';
 import { useAuthContext } from '@/hooks';
 import { LoadingSpinner } from '@/components';
-import { CITIES, CATEGORIES, SUBCATEGORIES } from '@/lib/constants';
+import { CATEGORIES, SUBCATEGORIES } from '@/lib/constants';
+import { isValidZip, lookupZip } from '@/lib/location';
 
 export default function NewItem() {
   const { user, loading: authLoading } = useAuthStore();
@@ -85,6 +86,8 @@ export default function NewItem() {
         setLoading(false);
         return;
       }
+      const zipCode = formData.location || (isValidZip(user.location) ? user.location : '');
+      const coordinates = await lookupZip(zipCode);
 
       // Upload photos
       const photoURLs: string[] = [];
@@ -105,7 +108,9 @@ export default function NewItem() {
         price: parseFloat(formData.price),
         originalPrice: formData.originalPrice ? parseFloat(formData.originalPrice) : null,
         condition: formData.condition,
-        location: formData.location || user.location,
+        location: zipCode,
+        zipCode,
+        ...coordinates,
         photoURLs,
         sellerName: user.displayName,
         sellerPhotoURL: user.photoURL || null,
@@ -238,18 +243,16 @@ export default function NewItem() {
 
           {/* Location */}
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Location</label>
-            <select
+            <label htmlFor="location" className="block text-sm font-semibold text-gray-700 mb-2">US ZIP code *</label>
+            <input
+              id="location" type="text" inputMode="numeric" autoComplete="postal-code"
+              pattern="[0-9]{5}" maxLength={5} required
+              title="Enter a 5-digit US ZIP code" placeholder="ZIP code"
               name="location"
-              value={formData.location || user.location}
+              value={formData.location || (isValidZip(user.location) ? user.location : '')}
               onChange={handleInputChange}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
-            >
-              <option value="">Select a location</option>
-              {CITIES.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
+            />
           </div>
 
           {/* Photos */}

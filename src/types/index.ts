@@ -33,6 +33,8 @@ export interface YardSaleEvent {
   description: string;
   location: string;
   address: string;
+  zipCode?: string;
+  coordinatePrecision?: 'zip';
   latitude: number;
   longitude: number;
   startDate: Date;
@@ -57,6 +59,9 @@ export interface Item {
   originalPrice?: number;
   condition: 'new' | 'like-new' | 'good' | 'fair' | 'poor';
   location: string;
+  zipCode?: string;
+  latitude?: number;
+  longitude?: number;
   photoURLs: string[];
   sellerName?: string;
   sellerPhotoURL?: string | null;

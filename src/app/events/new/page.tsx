@@ -11,21 +11,27 @@ import { Upload, ArrowLeft } from 'lucide-react';
 import { useAuthStore } from '@/store';
 import { useAuthContext } from '@/hooks';
 import { LoadingSpinner } from '@/components';
-import { CITIES, CITY_CENTERS, DEFAULT_MAP_CENTER } from '@/lib/constants';
+import { Coordinates, hasCoordinates, isValidZip, lookupZip } from '@/lib/location';
 
-async function geocodeAddress(address: string, city: string): Promise<{ lat: number; lng: number } | null> {
+async function geocodeAddress(address: string, zip: string): Promise<Coordinates | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
   try {
-    const q = encodeURIComponent(`${address}, ${city}, TX`);
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${q}`);
-    if (!res.ok) return null;
-    const results = await res.json();
-    if (!Array.isArray(results) || results.length === 0) return null;
-    const lat = parseFloat(results[0].lat);
-    const lng = parseFloat(results[0].lon);
-    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
-  } catch (error) {
-    console.error('Geocoding failed:', error);
+    const params = new URLSearchParams({
+      format: 'json', limit: '1', countrycodes: 'us', street: address, postalcode: zip,
+    });
+    const response = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, { signal: controller.signal });
+    if (!response.ok) return null;
+    const results = await response.json();
+    const coordinates = {
+      latitude: Number.parseFloat(results[0]?.lat),
+      longitude: Number.parseFloat(results[0]?.lon),
+    };
+    return hasCoordinates(coordinates) ? coordinates : null;
+  } catch {
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -89,6 +95,10 @@ export default function NewEvent() {
         setLoading(false);
         return;
       }
+      const zipCode = formData.location || (isValidZip(user.location) ? user.location : '');
+      const zipCenter = await lookupZip(zipCode);
+      const addressCoordinates = await geocodeAddress(formData.address, zipCode);
+      const coordinates = addressCoordinates || zipCenter;
 
       let photoURL = null;
       if (photoFile) {
@@ -100,23 +110,14 @@ export default function NewEvent() {
       const startDateTime = new Date(`${formData.startDate}T${formData.startTime}`);
       const endDateTime = new Date(`${formData.endDate}T${formData.endTime}`);
 
-      const city = formData.location || user.location;
-      let coords = await geocodeAddress(formData.address, city);
-      if (!coords) {
-        const center = CITY_CENTERS[city] || DEFAULT_MAP_CENTER;
-        coords = {
-          lat: center.lat + (Math.random() - 0.5) * 0.02,
-          lng: center.lng + (Math.random() - 0.5) * 0.02,
-        };
-        toast("Couldn't find that address on the map, so we placed it near the city center.", { icon: '📍' });
-      }
-
       await addDoc(collection(db, 'yardSaleEvents'), {
         userId: user.id,
         title: formData.title,
         description: formData.description,
         address: formData.address,
-        location: city,
+        location: zipCode,
+        zipCode,
+        ...(addressCoordinates ? {} : { coordinatePrecision: 'zip' }),
         posterName: user.displayName,
         posterPhotoURL: user.photoURL || null,
         startDate: Timestamp.fromDate(startDateTime),
@@ -125,8 +126,7 @@ export default function NewEvent() {
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
         itemCount: 0,
-        latitude: coords.lat,
-        longitude: coords.lng,
+        ...coordinates,
       });
 
       toast.success('Yard sale event created!');
@@ -191,18 +191,17 @@ export default function NewEvent() {
 
           {/* Location */}
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Location</label>
-            <select
+            <label htmlFor="location" className="block text-sm font-semibold text-gray-700 mb-2">US ZIP code *</label>
+            <input
+              id="location" type="text" inputMode="numeric" autoComplete="postal-code"
+              pattern="[0-9]{5}" maxLength={5} required
+              title="Enter a 5-digit US ZIP code" placeholder="ZIP code"
               name="location"
-              value={formData.location || user.location}
+              value={formData.location || (isValidZip(user.location) ? user.location : '')}
               onChange={handleInputChange}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
-            >
-              <option value="">Select a location</option>
-              {CITIES.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
+            />
+            <p className="text-sm text-gray-500 mt-2">If the street address cannot be located, the map shows the approximate ZIP-area center.</p>
           </div>
 
           {/* Start Date & Time */}

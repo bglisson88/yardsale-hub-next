@@ -2,13 +2,16 @@
 
 import { Suspense, useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { LoadingSpinner, EmptyState, EventCard } from '@/components';
 import { List, Map as MapIcon, CalendarX } from 'lucide-react';
 import Link from 'next/link';
 import type { YardSaleEvent } from '@/types';
+import { LocationSearch } from '@/components/LocationSearch';
+import { useZipSearch } from '@/hooks/useZipSearch';
+import { searchRadius } from '@/lib/location';
 
 const EventsMap = dynamic(() => import('@/components/EventsMap'), {
   ssr: false,
@@ -22,9 +25,12 @@ const EventsMap = dynamic(() => import('@/components/EventsMap'), {
 function EventsContent() {
   const searchParams = useSearchParams();
   const locationFilter = searchParams.get('location');
+  const router = useRouter();
   const [events, setEvents] = useState<YardSaleEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [view, setView] = useState<'list' | 'map'>('list');
+  const nearby = useZipSearch(events, searchParams.get('zip') || '', searchRadius(searchParams.get('radius')));
 
   useEffect(() => {
     const fetchEvents = async () => {
@@ -45,6 +51,7 @@ function EventsContent() {
         setEvents(eventsList.sort((a, b) => a.startDate.getTime() - b.startDate.getTime()));
       } catch (error) {
         console.error('Error fetching events:', error);
+        setError('Unable to load events. Please try again.');
       } finally {
         setLoading(false);
       }
@@ -53,7 +60,10 @@ function EventsContent() {
     fetchEvents();
   }, []);
 
-  const filteredEvents = events.filter((event) => !locationFilter || event.location === locationFilter);
+  const search = searchParams.get('search') || '';
+  const filteredEvents = nearby.records.filter((event) =>
+    (!locationFilter || event.location === locationFilter) &&
+    (!search || `${event.title} ${event.description || ''}`.toLowerCase().includes(search.toLowerCase())));
 
   if (loading) {
     return (
@@ -90,7 +100,25 @@ function EventsContent() {
         </div>
       </div>
 
-      {view === 'map' ? (
+      <div className="space-y-3 mb-6">
+        <form onSubmit={(event) => {
+          event.preventDefault();
+          const next = new URLSearchParams(searchParams.toString());
+          const value = new FormData(event.currentTarget).get('search')?.toString().trim() || '';
+          if (value) next.set('search', value); else next.delete('search');
+          router.replace(`/events?${next}`, { scroll: false });
+        }} className="flex gap-2">
+          <input key={search} name="search" type="search" aria-label="Search events" placeholder="Search events..."
+            defaultValue={search} className="min-w-0 flex-1 px-4 py-2 border border-gray-300 rounded-lg" />
+          <button type="submit" className="btn-primary !py-2">Search</button>
+        </form>
+        <LocationSearch />
+        {nearby.warning && <p className="text-sm text-gray-600" role="status">{nearby.warning}</p>}
+        {(nearby.error || nearby.warning) && <button type="button" onClick={nearby.retry} className="text-sm text-brand-700 underline">Refresh location results</button>}
+      </div>
+      {nearby.loading ? <LoadingSpinner /> : error || nearby.error ? (
+        <EmptyState title="Couldn't load events" description={error || nearby.error} />
+      ) : view === 'map' ? (
         <EventsMap events={filteredEvents} />
       ) : filteredEvents.length === 0 ? (
         <EmptyState
