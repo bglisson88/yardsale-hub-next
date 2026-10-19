@@ -11,7 +11,8 @@ import { ArrowLeft, Upload } from 'lucide-react';
 import { useAuthStore } from '@/store';
 import { useAuthContext } from '@/hooks';
 import { LoadingSpinner, Avatar } from '@/components';
-import { CITIES, PRESET_AVATARS } from '@/lib/constants';
+import { PRESET_AVATARS } from '@/lib/constants';
+import { isValidZip } from '@/lib/location';
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
 
@@ -21,6 +22,7 @@ export default function EditProfile() {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [locationChanged, setLocationChanged] = useState(false);
   const [formData, setFormData] = useState({ displayName: '', location: '', bio: '' });
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoURL, setPhotoURL] = useState<string | null>(null);
@@ -30,7 +32,7 @@ export default function EditProfile() {
     if (user && !initialized) {
       setFormData({
         displayName: user.displayName || '',
-        location: user.location || '',
+        location: isValidZip(user.location || '') ? user.location : '',
         bio: user.bio || '',
       });
       setPhotoURL(user.photoURL || null);
@@ -57,6 +59,7 @@ export default function EditProfile() {
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    if (e.target.name === 'location') setLocationChanged(true);
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
@@ -98,7 +101,7 @@ export default function EditProfile() {
 
       const updates = {
         displayName: formData.displayName.trim(),
-        location: formData.location,
+        location: locationChanged ? formData.location : user.location || '',
         bio: formData.bio,
         photoURL: finalPhoto,
       };
@@ -193,20 +196,18 @@ export default function EditProfile() {
 
           <div>
             <label htmlFor="location" className="block text-sm font-semibold text-gray-700 mb-2">
-              Location
+              US ZIP code
             </label>
-            <select
+            <input
+              type="text" inputMode="numeric" autoComplete="postal-code"
+              pattern="[0-9]{5}" maxLength={5}
+              title="Enter a 5-digit US ZIP code" placeholder="ZIP code"
               id="location"
               name="location"
               value={formData.location}
               onChange={handleChange}
               className={`${inputClass} bg-white`}
-            >
-              <option value="">Select a location</option>
-              {CITIES.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
+            />
           </div>
 
           <div>

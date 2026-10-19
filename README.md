@@ -14,6 +14,26 @@ A modern, full-featured marketplace for discovering and organizing local yard sa
 - 📸 **Image Upload** - Upload item photos to Firebase Storage
 - 📱 **Mobile Responsive** - Works seamlessly on all devices
 
+### ZIP and distance search
+
+Search items or events by a five-digit US ZIP code and a 5, 10 (default),
+25, 50, or 100 mile radius. Item/event result links retain the ZIP, radius,
+and search text. Leave the ZIP blank to browse everywhere.
+
+ZIP centers are resolved through the free, keyless Zippopotam.us API.
+Only ZIP codes are sent to that service. New posts save their ZIP and
+coordinates; event street addresses continue to use OpenStreetMap Nominatim,
+with a clearly labeled ZIP-center fallback when address lookup fails.
+Lookup failures are shown rather than substituting an unrelated location.
+
+Filtering runs client-side on the existing Firestore results. Distances are
+straight-line estimates from the searched ZIP center, not driving distances;
+all posts with the same ZIP are included. Older events with coordinates remain
+searchable. Older items with only city text cannot be reliably located and
+are excluded from ZIP searches, but remain available when browsing everywhere.
+No automatic backfill guesses a ZIP for those posts. This approach is suitable
+for the current dataset; larger datasets will need indexed geospatial queries.
+
 ## Tech Stack
 
 - **Frontend**: Next.js 14, React 18, TypeScript

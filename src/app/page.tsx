@@ -9,13 +9,17 @@ import { db } from '@/lib/firebase';
 import { useItems } from '@/hooks';
 import { ItemCard, EventCard, EmptyState } from '@/components';
 import { Logo } from '@/components/Logo';
-import { CATEGORIES, CATEGORY_ICONS, CITIES, SUBCATEGORIES } from '@/lib/constants';
+import { CATEGORIES, CATEGORY_ICONS, SUBCATEGORIES } from '@/lib/constants';
+import { ZipFields } from '@/components/ZipFields';
+import { DEFAULT_RADIUS } from '@/lib/location';
 import type { YardSaleEvent } from '@/types';
 
 export default function Home() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [location, setLocation] = useState('');
+  const [radius, setRadius] = useState<number>(DEFAULT_RADIUS);
+  const [searchType, setSearchType] = useState('items');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const { items } = useItems();
   const [events, setEvents] = useState<YardSaleEvent[]>([]);
@@ -46,9 +50,12 @@ export default function Home() {
     e.preventDefault();
     const params = new URLSearchParams();
     if (searchQuery.trim()) params.set('search', searchQuery.trim());
-    if (location) params.set('location', location);
+    if (location) {
+      params.set('zip', location);
+      params.set('radius', String(radius));
+    }
     const qs = params.toString();
-    router.push(qs ? `/items?${qs}` : '/items');
+    router.push(qs ? `/${searchType}?${qs}` : `/${searchType}`);
   };
 
   return (
@@ -66,7 +73,7 @@ export default function Home() {
           <div className="min-w-0 lg:col-span-7">
           <p className="inline-flex items-center gap-2 border border-emerald-400/20 bg-emerald-400/10 text-emerald-300 px-3 py-2 rounded-full text-xs sm:text-sm font-semibold mb-6">
             <MapPin size={14} className="shrink-0" aria-hidden="true" />
-            {CITIES.join(' · ')}
+            Neighborhood treasures, wherever you are
           </p>
           <h1 className="text-4xl sm:text-5xl xl:text-6xl font-extrabold leading-[1.12] tracking-tight text-white mb-5">
             Turn Neighborhood Treasures Into{' '}
@@ -78,33 +85,25 @@ export default function Home() {
 
           <form
             onSubmit={handleSearch}
-            className="bg-slate-950/80 border border-slate-700 rounded-2xl shadow-xl p-2 flex flex-col xl:flex-row gap-2"
+            className="bg-slate-950/80 border border-slate-700 rounded-2xl shadow-xl p-2 flex flex-wrap gap-2"
           >
-            <div className="relative flex-1 min-w-0">
+            <div className="relative w-full min-w-0">
               <Search className="absolute left-3 top-3 text-slate-400" size={20} aria-hidden="true" />
               <input
                 type="text"
-                aria-label="Search items"
-                placeholder="Search items..."
+                aria-label="Search items or events"
+                placeholder="Search items or events..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full min-w-0 bg-slate-900 text-white placeholder:text-slate-400 pl-10 pr-3 py-2.5 rounded-xl focus:ring-2 focus:ring-emerald-400"
               />
             </div>
-            <div className="relative xl:w-40">
-              <MapPin className="absolute left-3 top-3 text-slate-400 pointer-events-none" size={20} aria-hidden="true" />
-              <select
-                aria-label="City"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                className="w-full bg-slate-900 text-white pl-10 pr-3 py-2.5 rounded-xl focus:ring-2 focus:ring-emerald-400"
-              >
-                <option value="">All cities</option>
-                {CITIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </div>
+            <ZipFields zip={location} radius={radius} onZipChange={setLocation} onRadiusChange={setRadius} dark />
+            <select aria-label="Search for" value={searchType} onChange={(e) => setSearchType(e.target.value)}
+              className="bg-slate-900 text-white px-3 py-2.5 rounded-xl focus:ring-2 focus:ring-emerald-400">
+              <option value="items">Items</option>
+              <option value="events">Events</option>
+            </select>
             <button type="submit" className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-slate-950 hover:bg-emerald-500 transition-colors">Search</button>
           </form>
 
@@ -121,7 +120,7 @@ export default function Home() {
             <Link href="/items/new" className="px-4 py-3 rounded-xl text-sm font-bold bg-emerald-600 text-slate-950 hover:bg-emerald-500 transition-colors">
               Post an Item
             </Link>
-            <Link href="/events" className="inline-flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-bold border border-slate-600 text-white hover:bg-slate-800 transition-colors">
+            <Link href={/^\d{5}$/.test(location) ? `/events?zip=${location}&radius=${radius}` : '/events'} className="inline-flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-bold border border-slate-600 text-white hover:bg-slate-800 transition-colors">
               Find Sales Near You <ArrowRight size={16} aria-hidden="true" />
             </Link>
           </div>

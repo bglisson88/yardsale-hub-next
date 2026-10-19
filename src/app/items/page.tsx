@@ -1,12 +1,15 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { Search, PackageSearch } from 'lucide-react';
 import { useItems } from '@/hooks';
 import { LoadingSpinner, EmptyState, ItemCard } from '@/components';
-import { CATEGORIES, CITIES, SUBCATEGORIES } from '@/lib/constants';
+import { CATEGORIES, SUBCATEGORIES } from '@/lib/constants';
+import { LocationSearch } from '@/components/LocationSearch';
+import { useZipSearch } from '@/hooks/useZipSearch';
+import { searchRadius } from '@/lib/location';
 
 const SORTS = [
   { value: 'newest', label: 'Newest' },
@@ -22,6 +25,7 @@ function BrowseContent() {
   const pathname = usePathname();
   const params = useSearchParams();
   const { items, loading, error } = useItems();
+  const nearby = useZipSearch(items, params.get('zip') || '', searchRadius(params.get('radius')));
 
   const category = params.get('category') || '';
   const subcategory = params.get('subcategory') || '';
@@ -35,25 +39,24 @@ function BrowseContent() {
     setSearchText(urlSearch);
   }, [urlSearch]);
 
-  const updateParam = (key: string, value: string) => {
+  const updateParam = useCallback((key: string, value: string) => {
     const next = new URLSearchParams(params.toString());
     if (key === 'category') next.delete('subcategory');
     if (value) next.set(key, value);
     else next.delete(key);
     const qs = next.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-  };
+  }, [params, pathname, router]);
 
   useEffect(() => {
     if (searchText === urlSearch) return;
     const t = setTimeout(() => updateParam('search', searchText.trim()), 300);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchText]);
+  }, [searchText, urlSearch, updateParam]);
 
   const filtered = useMemo(() => {
     const q = urlSearch.toLowerCase();
-    const list = items.filter((item) => {
+    const list = nearby.records.filter((item) => {
       if (seller && item.userId !== seller) return false;
       if (category && normalizeCategory(item.category) !== category) return false;
       if (category && subcategory && item.subcategory !== subcategory) return false;
@@ -64,7 +67,7 @@ function BrowseContent() {
     if (sort === 'price-asc') list.sort((a, b) => a.price - b.price);
     else if (sort === 'price-desc') list.sort((a, b) => b.price - a.price);
     return list;
-  }, [items, seller, category, subcategory, location, urlSearch, sort]);
+  }, [nearby.records, seller, category, subcategory, location, urlSearch, sort]);
 
   const chip = (active: boolean) =>
     `px-4 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition ${
@@ -88,17 +91,6 @@ function BrowseContent() {
               />
             </div>
             <select
-              aria-label="Filter by city"
-              value={location}
-              onChange={(e) => updateParam('location', e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg bg-white"
-            >
-              <option value="">All cities</option>
-              {CITIES.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-            <select
               aria-label="Sort items"
               value={sort}
               onChange={(e) => updateParam('sort', e.target.value === 'newest' ? '' : e.target.value)}
@@ -109,6 +101,7 @@ function BrowseContent() {
               ))}
             </select>
           </div>
+          <LocationSearch />
           <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Categories">
             <button className={chip(!category)} onClick={() => updateParam('category', '')}>All</button>
             {CATEGORIES.map((c) => (
@@ -139,10 +132,12 @@ function BrowseContent() {
           <Link href="/items/new" className="btn-primary !py-2 text-sm">Post Item</Link>
         </div>
 
-        {loading ? (
+        {nearby.warning && <p className="text-sm text-gray-600 mb-4" role="status">{nearby.warning}</p>}
+        {(nearby.error || nearby.warning) && <button type="button" onClick={nearby.retry} className="text-sm text-brand-700 underline mb-4">Refresh location results</button>}
+        {loading || nearby.loading ? (
           <div className="py-20"><LoadingSpinner /></div>
-        ) : error ? (
-          <EmptyState title="Couldn't load items" description={error} />
+        ) : error || nearby.error ? (
+          <EmptyState title="Couldn't load items" description={error || nearby.error} />
         ) : filtered.length === 0 ? (
           <EmptyState
             icon={<PackageSearch size={48} />}

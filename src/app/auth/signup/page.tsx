@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc, Timestamp } from 'firebase/firestore';
-import { CITIES } from '@/lib/constants';
 import { auth, db } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -113,21 +112,19 @@ export default function SignUp() {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Location
+              <label htmlFor="location" className="block text-sm font-semibold text-gray-700 mb-2">
+                US ZIP code
               </label>
-              <select
+              <input
+                id="location" type="text" inputMode="numeric" autoComplete="postal-code"
+                pattern="[0-9]{5}" maxLength={5}
+                title="Enter a 5-digit US ZIP code" placeholder="ZIP code"
                 name="location"
                 required
                 value={formData.location}
                 onChange={handleChange}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
-              >
-                <option value="">Select a location</option>
-                {CITIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
+              />
             </div>
 
             <div>

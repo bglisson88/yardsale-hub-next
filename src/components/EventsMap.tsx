@@ -1,14 +1,15 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import Link from 'next/link';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuthStore } from '@/store';
-import { CITY_CENTERS, DEFAULT_MAP_CENTER } from '@/lib/constants';
+import { DEFAULT_MAP_CENTER } from '@/lib/constants';
+import { hasCoordinates } from '@/lib/location';
 import { getInitials, getAvatarColorIndex } from './Avatar';
 import type { YardSaleEvent } from '@/types';
 
@@ -36,15 +37,13 @@ function createPinIcon(photoURL: string | null | undefined, name: string | undef
   });
 }
 
-function resolvePosition(event: YardSaleEvent): [number, number] {
-  if (event.latitude && event.longitude) return [event.latitude, event.longitude];
-  const center = CITY_CENTERS[event.location] || DEFAULT_MAP_CENTER;
-  // Deterministic small offset so fallback pins in one city don't stack exactly
-  let hash = 0;
-  for (let i = 0; i < event.id.length; i++) hash = (hash * 31 + event.id.charCodeAt(i)) >>> 0;
-  const dx = ((hash % 100) / 100 - 0.5) * 0.02;
-  const dy = (((hash >> 7) % 100) / 100 - 0.5) * 0.02;
-  return [center.lat + dx, center.lng + dy];
+function FitEvents({ positions }: { positions: [number, number][] }) {
+  const map = useMap();
+  useEffect(() => {
+    if (positions.length) map.fitBounds(L.latLngBounds(positions), { padding: [40, 40], maxZoom: 12 });
+    else map.setView([DEFAULT_MAP_CENTER.lat, DEFAULT_MAP_CENTER.lng], 4);
+  }, [map, positions]);
+  return null;
 }
 
 export default function EventsMap({ events }: { events: YardSaleEvent[] }) {
@@ -82,22 +81,24 @@ export default function EventsMap({ events }: { events: YardSaleEvent[] }) {
 
   const markers = useMemo(
     () =>
-      events.map((event) => {
+      events.filter(hasCoordinates).map((event) => {
         const poster = posters[event.userId];
         const name = event.posterName || poster?.name;
         const photo = event.posterPhotoURL || poster?.photoURL;
-        return { event, position: resolvePosition(event), icon: createPinIcon(photo, name) };
+        return { event, position: [event.latitude, event.longitude] as [number, number], icon: createPinIcon(photo, name) };
       }),
     [events, posters]
   );
+  const positions = useMemo(() => markers.map((marker) => marker.position), [markers]);
 
   return (
     <MapContainer
       center={[DEFAULT_MAP_CENTER.lat, DEFAULT_MAP_CENTER.lng]}
-      zoom={10}
+      zoom={4}
       scrollWheelZoom
       className="w-full h-[500px] rounded-2xl shadow-lg z-0"
     >
+      <FitEvents positions={positions} />
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -119,6 +120,7 @@ export default function EventsMap({ events }: { events: YardSaleEvent[] }) {
               <p className="text-sm">
                 {event.address}, {event.location}
               </p>
+              {event.coordinatePrecision === 'zip' && <p className="text-xs">Approximate ZIP-area location, not the street address.</p>}
               {event.description && <p className="text-sm text-gray-600 line-clamp-3">{event.description}</p>}
               <p className="text-sm font-semibold">{event.itemCount} items</p>
               <Link href={`/events/${event.id}`} className="inline-block text-brand-700 font-bold underline">
