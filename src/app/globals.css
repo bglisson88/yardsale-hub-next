@@ -33,6 +33,18 @@ textarea:focus-visible {
   .card {
     @apply bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden hover:shadow-xl hover:-translate-y-1 transition duration-200;
   }
+  .card-dark {
+    @apply bg-slate-900 rounded-2xl border border-slate-800 shadow-sm overflow-hidden hover:border-slate-600 transition-colors;
+  }
+}
+
+.card-dark .seller-rating,
+.card-dark .seller-rating > span {
+  @apply text-slate-300;
+}
+
+body:has(.home-theme) > footer {
+  @apply mt-0 border-t border-slate-800 bg-slate-950 bg-none;
 }
 
 .leaflet-container {
@@ -42,4 +54,23 @@ textarea:focus-visible {
 .avatar-pin {
   background: transparent;
   border: none;
+}
+
+.home-theme :is(a, button, input, select):focus-visible,
+.site-nav :is(a, button):focus-visible {
+  outline-color: theme('colors.emerald.400');
+}
+
+@keyframes treasure-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .treasure-float {
+    animation: treasure-float 6s ease-in-out infinite;
+  }
+  .treasure-float-delayed {
+    animation: treasure-float 7s ease-in-out -3s infinite;
+  }
 }
