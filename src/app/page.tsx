@@ -9,6 +9,7 @@ import { db } from '@/lib/firebase';
 import { useItems } from '@/hooks';
 import { ItemCard, EventCard, EmptyState } from '@/components';
 import { Logo } from '@/components/Logo';
+import { CategoryNavigation } from '@/components/CategoryNavigation';
 import { CATEGORIES, CATEGORY_ICONS, SUBCATEGORIES } from '@/lib/constants';
 import { ZipFields } from '@/components/ZipFields';
 import { DEFAULT_RADIUS } from '@/lib/location';
@@ -60,6 +61,7 @@ export default function Home() {
 
   return (
     <div className="home-theme bg-slate-950 text-slate-300 pb-16">
+      <CategoryNavigation />
       {/* Hero */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
         <div className="relative overflow-hidden rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950">
