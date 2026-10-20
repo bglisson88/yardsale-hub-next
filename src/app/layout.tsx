@@ -1,4 +1,5 @@
 import { Navbar, Footer } from '@/components';
+import { CategoryNavigation } from '@/components/CategoryNavigation';
 import './globals.css';
 import { Toaster } from 'react-hot-toast';
 
@@ -16,6 +17,7 @@ export default function RootLayout({
     <html lang="en">
       <body className="bg-white">
         <Navbar />
+        <CategoryNavigation />
         <main className="min-h-screen">{children}</main>
         <Footer />
         <Toaster position="top-right" />

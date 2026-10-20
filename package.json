@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "test_dir=$(mktemp -d) && tsc src/lib/categories.ts src/lib/discovery.ts --module commonjs --target ES2020 --skipLibCheck --outDir \"$test_dir\" && CATEGORY_TEST_BUILD=\"$test_dir\" node --test tests/*.test.cjs; result=$?; if [ -n \"$test_dir\" ]; then rm -rf \"$test_dir\"; fi; exit $result"
   },
   "dependencies": {
     "react": "^18.2.0",

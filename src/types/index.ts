@@ -33,6 +33,8 @@ export interface Item {
   title: string;
   description: string;
   category: string;
+  subcategory?: string;
+  itemType?: string;
   price: number;
   originalPrice?: number;
   condition: 'new' | 'like-new' | 'good' | 'fair' | 'poor';
