@@ -28,7 +28,7 @@ export default function Home() {
     let active = true;
     const load = async () => {
       try {
-        const q = query(collection(db, 'yardSaleEvents'), where('endDate', '>=', Timestamp.now()));
+        const q = query(collection(db, 'yardSaleEvents'), where('startDate', '>=', Timestamp.now()));
         const snap = await getDocs(q);
         const list = snap.docs.map((document) => {
           const data = document.data();
