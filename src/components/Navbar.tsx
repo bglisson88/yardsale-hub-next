@@ -58,7 +58,7 @@ export function Navbar() {
 
   const menuLinks = [
     { href: '/dashboard', label: 'Dashboard' },
-    { href: '/items/new', label: 'Post Item' },
+    { href: '/items/new', label: 'Sell an Item' },
     { href: '/events/new', label: 'Create Event' },
     { href: '/messages', label: 'Messages' },
   ];
@@ -96,7 +96,7 @@ export function Navbar() {
           <div className="hidden md:flex items-center gap-6">
             <Link href="/items" className={navLink}>Browse</Link>
             <Link href="/events" className={navLink}>Events</Link>
-            {user && <Link href="/items/new" className={actionLink}><PlusCircle size={16} aria-hidden="true" /> Post Item</Link>}
+            <Link href="/items/new" className={actionLink}><PlusCircle size={16} aria-hidden="true" /> Sell an Item</Link>
             {loading ? (
               <div className="w-10 h-10" aria-hidden="true" />
             ) : user ? (
@@ -159,9 +159,10 @@ export function Navbar() {
             )}
             <Link href="/items" onClick={() => setIsOpen(false)} className={mobileLink}>Browse</Link>
             <Link href="/events" onClick={() => setIsOpen(false)} className={mobileLink}>Events</Link>
+            <Link href="/items/new" onClick={() => setIsOpen(false)} className={`${actionLink} w-full`}><PlusCircle size={16} aria-hidden="true" /> Sell an Item</Link>
             {!loading && (user ? (
               <>
-                {menuLinks.map((link) => (
+                {menuLinks.filter((link) => link.href !== '/items/new').map((link) => (
                   <Link key={link.href} href={link.href} onClick={() => setIsOpen(false)} className={mobileLink}>{link.label}</Link>
                 ))}
                 <button onClick={handleSignOut} className="w-full text-left px-4 py-2.5 text-red-300 hover:bg-slate-800 rounded-xl">Sign Out</button>

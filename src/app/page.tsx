@@ -99,7 +99,7 @@ export default function Home() {
                 ))}
               </div>
               <div className="flex flex-wrap gap-3 mt-7">
-                <Link href="/items/new" className="px-4 py-3 rounded-xl text-sm font-bold bg-emerald-600 text-slate-950 hover:bg-emerald-500 transition-colors">Post an Item</Link>
+                <Link href="/items/new" className="px-4 py-3 rounded-xl text-sm font-bold bg-emerald-600 text-slate-950 hover:bg-emerald-500 transition-colors">Sell an Item</Link>
                 <Link href={location.trim() ? `/events?${new URLSearchParams({ location: location.trim() })}` : '/events'} className="inline-flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-bold border border-slate-600 text-white hover:bg-slate-800 transition-colors">
                   Find Sales Near You <ArrowRight size={16} aria-hidden="true" />
                 </Link>
