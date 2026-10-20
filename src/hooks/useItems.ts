@@ -7,7 +7,7 @@ import { useItemStore } from '@/store';
 import type { Item } from '@/types';
 
 export function useItems(userId?: string, yardSaleId?: string) {
-  const { items, setItems, setLoading, setError } = useItemStore();
+  const { items, setItems, setLoading } = useItemStore();
 
   useEffect(() => {
     setLoading(true);
