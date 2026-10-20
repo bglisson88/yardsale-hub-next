@@ -9,6 +9,7 @@ import Link from 'next/link';
 import type { YardSaleEvent } from '@/types';
 
 interface SearchParams {
+  search?: string;
   location?: string;
   date?: string;
 }
@@ -45,6 +46,9 @@ export default function Events({ searchParams }: { searchParams: SearchParams })
   }, []);
 
   const filteredEvents = events.filter((event) => {
+    if (searchParams.search && !event.title.toLowerCase().includes(searchParams.search.trim().toLowerCase())) {
+      return false;
+    }
     if (searchParams.location && event.location !== searchParams.location) {
       return false;
     }

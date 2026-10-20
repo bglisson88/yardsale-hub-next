@@ -8,6 +8,35 @@
   box-sizing: border-box;
 }
 
+.home-theme,
+.site-nav {
+  font-family: var(--font-brand), system-ui, sans-serif;
+}
+
+.home-theme :is(a, button, input, select):focus-visible,
+.site-nav :is(a, button):focus-visible {
+  outline: 2px solid theme('colors.emerald.400');
+  outline-offset: 2px;
+}
+
+body:has(.home-theme) > footer {
+  @apply mt-0 border-t border-slate-800 bg-slate-950;
+}
+
+@keyframes treasure-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .treasure-float {
+    animation: treasure-float 6s ease-in-out infinite;
+  }
+  .treasure-float-delayed {
+    animation: treasure-float 7s ease-in-out -3s infinite;
+  }
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
