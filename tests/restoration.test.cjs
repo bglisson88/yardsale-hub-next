@@ -136,6 +136,44 @@ const user = { id: 'test-user', displayName: 'Test Neighbor', email: 'neighbor@e
 const account = node => node.props?.id === 'account-navigation';
 const mobile = node => node.props?.id === 'mobile-navigation';
 
+test('Sell an Item is a single desktop/mobile action regardless of auth state', () => {
+  for (const auth of [{ user: null, loading: true }, { user: null, loading: false }, { user, loading: false }]) {
+    const nav = harness('src/components/Navbar.tsx', auth);
+    const desktop = nav.find(node => node.props?.className === 'hidden md:flex items-center gap-6');
+    nav.click('Open menu');
+    for (const section of [desktop, nav.find(mobile)]) {
+      const html = renderToStaticMarkup(section);
+      assert.equal((html.match(/href="\/items\/new"/g) || []).length, 1);
+      assert.match(html, /href="\/items\/new" class="[^"]*bg-emerald-600[^"]*"[^>]*>.*Sell an Item/);
+      assert.doesNotMatch(html, /Post Item/);
+      assert.ok(html.indexOf('href="/events"') < html.indexOf('href="/items/new"'));
+      if (!auth.loading) {
+        assert.ok(html.indexOf('href="/items/new"') < html.indexOf(auth.user
+          ? section === desktop ? 'aria-label="Open account menu"' : 'href="/dashboard"'
+          : 'href="/auth/login"'));
+      }
+    }
+    nav.find(node => node.props?.href === '/items/new', nav.find(mobile)).props.onClick();
+    nav.render();
+    assert.equal(nav.find(mobile), undefined);
+    if (auth.user) {
+      nav.click('Open account menu');
+      const sell = nav.find(node => node.props?.href === '/items/new', nav.find(account));
+      assert.equal(sell.props.children, 'Sell an Item');
+      sell.props.onClick();
+      nav.render();
+      assert.equal(nav.find(account), undefined);
+    }
+    nav.unmount();
+  }
+});
+
+test('homepage hero uses the Sell an Item wording and existing destination', () => {
+  const page = harness('src/app/page.tsx');
+  assert.equal(page.find(node => node.props?.href === '/items/new').props.children, 'Sell an Item');
+  page.unmount();
+});
+
 test('signed-out and loading navigation have desktop/mobile parity', () => {
   const nav = harness('src/components/Navbar.tsx', { user: null, loading: true });
   assert.equal(nav.find(node => node.props?.children === 'Sign In'), undefined);
