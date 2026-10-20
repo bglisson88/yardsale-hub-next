@@ -25,7 +25,7 @@ export function CategoryNavigation() {
   const id = useId();
   const pathname = usePathname();
   const category = openCategory === null ? null : CATEGORIES[openCategory];
-  const focusClass = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-blue-600';
+  const focusClass = 'focus-visible:outline focus-visible:outline-2 focus-visible:!outline-offset-[-3px] focus-visible:outline-emerald-400';
 
   const focusLink = useCallback((index: number, position: 'first' | 'last') => {
     const panel = window.matchMedia('(min-width: 768px)').matches
@@ -126,20 +126,20 @@ export function CategoryNavigation() {
     ];
     return (
       <div className="grid gap-6 md:grid-cols-3">
-        <div className="rounded-xl bg-blue-50 p-4">
-          <ShoppingBag className="mb-3 text-blue-600" size={28} aria-hidden="true" />
-          <h2 className="mb-3 text-lg font-bold text-gray-900">{current.label}</h2>
+        <div className="rounded-xl border border-slate-700 bg-slate-800 p-4">
+          <ShoppingBag className="mb-3 text-emerald-400" size={28} aria-hidden="true" />
+          <h2 className="mb-3 text-lg font-bold text-white">{current.label}</h2>
           <Link
             href={categoryHref(current.id)}
             onClick={() => setOpenCategory(null)}
-            className={`inline-flex items-center gap-2 rounded p-1 text-sm font-semibold text-blue-700 hover:underline ${focusClass}`}
+            className={`inline-flex items-center gap-2 rounded p-1 text-sm font-semibold text-emerald-400 hover:underline ${focusClass}`}
           >
             All {current.label}<ArrowRight size={16} aria-hidden="true" />
           </Link>
         </div>
         {groups.map((group, groupIndex) => group.length > 0 && (
           <section key={groupIndex}>
-            <h3 className="mb-2 flex items-center gap-2 px-3 text-xs font-bold uppercase tracking-wide text-gray-500">
+            <h3 className="mb-2 flex items-center gap-2 px-3 text-xs font-bold uppercase tracking-wide text-slate-400">
               <Grid size={16} aria-hidden="true" />
               {groupIndex === 0 ? 'Shop by subcategory' : 'More to explore'}
             </h3>
@@ -149,7 +149,7 @@ export function CategoryNavigation() {
                   <Link
                     href={categoryHref(current.id, subcategory.id)}
                     onClick={() => setOpenCategory(null)}
-                    className={`block rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 ${focusClass}`}
+                    className={`block rounded-lg px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-emerald-400 ${focusClass}`}
                   >
                     {subcategory.label}
                   </Link>
@@ -195,7 +195,7 @@ export function CategoryNavigation() {
         }}
         onKeyDown={(event) => handleTriggerKey(event, index, mobile)}
         className={`flex w-full items-center justify-between gap-2 border-b-2 px-4 py-4 text-left text-sm font-semibold ${focusClass} ${
-          expanded ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-transparent text-gray-700 hover:bg-blue-50 hover:text-blue-700'
+          expanded ? 'border-emerald-400 bg-slate-800 text-emerald-400' : 'border-transparent text-slate-300 hover:bg-slate-800 hover:text-emerald-400'
         }`}
       >
         {current.label}
@@ -212,7 +212,7 @@ export function CategoryNavigation() {
       <nav
         ref={navigationRef}
         aria-label="Shop by category"
-        className="relative z-40 border-b border-gray-200 bg-white shadow-sm"
+        className="site-nav relative z-40 border-b border-slate-800 bg-slate-950 text-white shadow-sm"
         onBlur={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpenCategory(null);
         }}
@@ -227,7 +227,7 @@ export function CategoryNavigation() {
             type="button"
             aria-label="Scroll categories left"
             onClick={() => scrollRef.current?.scrollBy({ left: -320, behavior: 'smooth' })}
-            className={`shrink-0 rounded-lg p-2 text-blue-700 hover:bg-blue-50 ${focusClass}`}
+            className={`shrink-0 rounded-lg p-2 text-emerald-400 hover:bg-slate-800 ${focusClass}`}
           >
             <ChevronLeft size={20} aria-hidden="true" />
           </button>
@@ -255,7 +255,7 @@ export function CategoryNavigation() {
             type="button"
             aria-label="Scroll categories right"
             onClick={() => scrollRef.current?.scrollBy({ left: 320, behavior: 'smooth' })}
-            className={`shrink-0 rounded-lg p-2 text-blue-700 hover:bg-blue-50 ${focusClass}`}
+            className={`shrink-0 rounded-lg p-2 text-emerald-400 hover:bg-slate-800 ${focusClass}`}
           >
             <ChevronRight size={20} aria-hidden="true" />
           </button>
@@ -269,16 +269,16 @@ export function CategoryNavigation() {
             aria-labelledby={`${id}-desktop-${index}-trigger`}
             hidden={openCategory !== index}
             onKeyDown={handlePanelKey}
-            className="absolute inset-x-0 top-full mx-auto hidden max-h-[65dvh] max-w-7xl overflow-y-auto rounded-b-xl border border-gray-200 bg-white p-6 shadow-xl md:block [&[hidden]]:hidden"
+            className="absolute inset-x-0 top-full mx-auto hidden max-h-[65dvh] max-w-7xl overflow-y-auto rounded-b-xl border border-slate-700 bg-slate-900 p-6 shadow-xl shadow-black/20 md:block [&[hidden]]:hidden"
           >
             {openCategory === index && renderLinks(index)}
           </div>
         ))}
         <div className="md:hidden">
-          <p className="px-4 pt-3 text-xs font-bold uppercase tracking-wide text-gray-500">Shop by category</p>
+          <p className="px-4 pt-3 text-xs font-bold uppercase tracking-wide text-slate-400">Shop by category</p>
           <ul>
             {CATEGORIES.map((current, index) => (
-              <li key={current.id} className="border-b border-gray-100 last:border-0">
+              <li key={current.id} className="border-b border-slate-800 last:border-0">
                 {renderTrigger(index, true)}
                 <div
                   ref={(element) => { mobilePanels.current[index] = element; }}
@@ -286,7 +286,7 @@ export function CategoryNavigation() {
                   aria-labelledby={`${id}-mobile-${index}-trigger`}
                   hidden={openCategory !== index}
                   onKeyDown={handlePanelKey}
-                  className="p-4"
+                  className="bg-slate-900 p-4"
                 >
                   {openCategory === index && renderLinks(index)}
                 </div>
