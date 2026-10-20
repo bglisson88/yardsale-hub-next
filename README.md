@@ -104,7 +104,56 @@ npm start
 
 # Type checking
 npm run type-check
+
+# Taxonomy and discovery regression tests (Node's built-in test runner)
+npm test
 ```
+
+## Categories and discovery
+
+`src/lib/categories.ts` is the shared typed taxonomy for the 15 main categories
+and their subcategories. Child IDs are scoped to their parent; optional
+`itemTypes` leave room for a third level without requiring one. Navigation,
+listing selectors, validation, and readable labels use this source.
+
+- Browse links use encoded `category` and optional `subcategory` parameters.
+  Parent results include listings with and without a child. Search and location
+  combine with category filters; **Clear all filters** returns to all items.
+- Legacy category names (including Furniture, Electronics, Tools, Clothing,
+  Sports, Books, and Other) normalize through explicit aliases. Other/Misc map
+  to Garage Sales, Bundles & Local Finds, without assigning a subcategory.
+  Unknown legacy values remain intact and readable; unchanged legacy
+  classifications are preserved when editing other fields. Changed
+  classifications must pass current parent/child validation. No production data
+  migration is performed. Owners can open **Edit listing** from browse results; existing
+  listings may retain no subcategory. New listings require both selections.
+- Writes validate the parent/child pairing before upload/save and omit absent
+  optional category fields. Event membership (`yardSaleId`) stays independent
+  from item classification and is preserved during edits.
+- Homepage shortcuts link to fashion, home, an electronics **and** gaming group,
+  and a collectibles group that also includes the named vintage fashion,
+  kitchenware, and craft-supply subcategories. Parent-only legacy listings cannot
+  reliably be identified as vintage and are not guessed into those subcategories.
+- **Garage Sales Near Me** links to the existing upcoming-events page, not the
+  item taxonomy's fifteenth category. This baseline has no GPS/radius discovery;
+  item location filters match the stored city/ZIP text (case-insensitive).
+
+### Prior menu work and scope
+
+This work starts from current `main`, not `copilot/fix-dashboard-counts`.
+The earlier [mega-menu task](https://github.com/bglisson88/yardsale-hub-next/tasks/aed8d442-676e-4f72-872f-252d8376a9aa)
+produced [PR #17](https://github.com/bglisson88/yardsale-hub-next/pull/17), which was
+closed without merging and targets that other branch. Its disclosure/navigation
+pattern is adapted here for the shared taxonomy and current blue/white brand.
+There is no merge dependency, and no other PR is merged by this change. If that
+older menu is revived, reconcile its duplicate component rather than layering it
+on top of this one.
+
+Deferred: additional top categories, expanded condition/price/delivery/seller/
+brand/size/color/material and vehicle-specific filters, richer event management,
+and future moderation guidance for recalled or hygiene-sensitive products.
+This update does not change the condition schema, introduce seller verification,
+or claim moderation-policy enforcement.
 
 ## Deployment
 

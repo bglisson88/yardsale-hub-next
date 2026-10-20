@@ -4,6 +4,7 @@ import { Logo } from '@/components/Logo';
 import { Search, MapPin, Calendar, Package } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
+import { DISCOVERY_SHORTCUTS } from '@/lib/discovery';
 
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -57,6 +58,7 @@ export default function Home() {
               <Search className="absolute left-3 top-3 text-gray-400" size={20} />
               <input
                 type="text"
+                aria-label="Search items"
                 placeholder="Search items..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -67,6 +69,7 @@ export default function Home() {
               <MapPin className="absolute left-3 top-3 text-gray-400" size={20} />
               <input
                 type="text"
+                aria-label="Location (city or ZIP)"
                 placeholder="Location..."
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
@@ -74,13 +77,25 @@ export default function Home() {
               />
             </div>
             <Link
-              href={`/?search=${searchQuery}&location=${location}`}
+              href={`/items?${new URLSearchParams({ search: searchQuery, location }).toString()}`}
               className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition font-semibold text-center"
             >
               Search
             </Link>
           </div>
         </div>
+      </section>
+
+      <section aria-labelledby="discovery-heading" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <h2 id="discovery-heading" className="text-2xl font-bold text-gray-900 mb-6">Discover your next find</h2>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          {DISCOVERY_SHORTCUTS.map(shortcut => (
+            <Link key={shortcut.id} href={shortcut.href} className="rounded-xl border border-blue-100 bg-blue-50 p-5 font-semibold text-blue-700 hover:bg-blue-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600">
+              {shortcut.label}
+            </Link>
+          ))}
+        </div>
+        <p className="mt-4 text-sm text-gray-600">Garage Sales Near Me opens upcoming event discovery. Location matching uses the city or ZIP entered on listings, not distance or GPS.</p>
       </section>
 
       {/* Features Section */}
