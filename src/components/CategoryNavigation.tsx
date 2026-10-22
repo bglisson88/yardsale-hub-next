@@ -211,12 +211,12 @@ export function CategoryNavigation() {
           }
         }}
         onKeyDown={(event) => handleTriggerKey(event, index, mobile)}
-        className={`flex w-full items-center justify-between gap-2 border-b-2 px-4 py-4 text-left text-sm font-semibold ${focusClass} ${
+        className={`flex w-full items-center justify-between border-b-2 py-4 text-left font-semibold ${mobile ? 'gap-2 px-4 text-sm' : 'gap-0.5 whitespace-nowrap px-0 text-[9px] tracking-tighter lg:gap-1 lg:px-1 lg:text-[11px] xl:px-2 xl:text-xs'} ${focusClass} ${
           expanded ? 'border-emerald-400 bg-slate-800 text-emerald-400' : 'border-transparent text-slate-300 hover:bg-slate-800 hover:text-emerald-400'
         }`}
       >
         {current.label}
-        <ChevronDown size={16} aria-hidden="true" className={`shrink-0 ${expanded ? 'rotate-180' : ''}`} />
+        <ChevronDown size={16} aria-hidden="true" className={`shrink-0 ${mobile ? '' : 'h-3 w-3 xl:h-4 xl:w-4'} ${expanded ? 'rotate-180' : ''}`} />
       </button>
     );
   };
@@ -240,11 +240,11 @@ export function CategoryNavigation() {
         }}
       >
         <div className="mx-auto hidden max-w-7xl px-2 md:block lg:px-6">
-          <ul className="flex flex-wrap">
+          <ul className="flex flex-nowrap">
             {CATEGORIES.map((current, index) => (
               <li
                 key={current.id}
-                className="min-w-0 max-w-full"
+                className="shrink-0"
                 onPointerEnter={(event) => {
                   if (event.pointerType === 'mouse' &&
                       !desktopPanels.current.some((panel) => panel?.contains(document.activeElement))) {
@@ -253,7 +253,7 @@ export function CategoryNavigation() {
                       if (openCategory !== index) openSource.current = 'hover';
                       setOpenCategory(index);
                     };
-                    // Allow the pointer to cross wrapped rows on its way to the open panel.
+                    // Allow the pointer to reach the open panel before switching categories.
                     if (openCategory !== null && openCategory !== index) {
                       hoverTimeout.current = setTimeout(open, 200);
                     } else open();
