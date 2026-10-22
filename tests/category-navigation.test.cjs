@@ -55,9 +55,21 @@ test('desktop dropdown and mobile accordion share emerald active states and slat
   assert.doesNotMatch(html, /(?:bg|text|border|outline)-(?:blue|gray)-|bg-white/);
 });
 
-test('top-level categories wrap without horizontal scrolling or scroll buttons', () => {
+test('desktop categories stay on one row with compact labels and unchanged mobile sizing', () => {
   const html = renderNavigation();
-  assert.match(html, /<ul class="flex flex-wrap">/);
+  assert.match(html, /<ul class="flex flex-nowrap">/);
+  assert.equal(taxonomy.CATEGORIES.length, 9);
+  const desktopTriggers = [...html.matchAll(/<button[^>]*id="[^"]*-desktop-\d+-trigger"[^>]*class="([^"]*)"/g)];
+  const mobileTriggers = [...html.matchAll(/<button[^>]*id="[^"]*-mobile-\d+-trigger"[^>]*class="([^"]*)"/g)];
+  assert.equal(desktopTriggers.length, 9);
+  assert.equal(mobileTriggers.length, 9);
+  for (const [, classes] of desktopTriggers) {
+    assert.match(classes, /gap-0\.5 whitespace-nowrap px-0 text-\[9px\] tracking-tighter lg:gap-1 lg:px-1 lg:text-\[11px\] xl:px-2 xl:text-xs/);
+  }
+  for (const [, classes] of mobileTriggers) {
+    assert.match(classes, /gap-2 px-4 text-sm/);
+    assert.doesNotMatch(classes, /whitespace-nowrap|text-\[9px\]|tracking-tighter/);
+  }
   assert.doesNotMatch(html, /overflow-x-auto|w-max|Scroll categories (left|right)/);
   for (const parent of taxonomy.CATEGORIES) {
     const encoded = parent.label.replaceAll('&', '&amp;');
