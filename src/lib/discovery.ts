@@ -1,5 +1,5 @@
 import {
-  categoryHref, getCategory, normalizeCategory, normalizeSubcategory,
+  categoryFields, categoryHref, getCategory, normalizeCategory, normalizeSubcategory,
 } from './categories';
 
 export const DISCOVERY_SHORTCUTS = [
@@ -26,6 +26,7 @@ export interface BrowseParams {
   location?: string;
   category?: string;
   subcategory?: string;
+  itemType?: string;
   discovery?: string;
 }
 
@@ -34,13 +35,14 @@ interface BrowsableItem {
   location: string;
   category: string;
   subcategory?: string;
+  itemType?: string;
   isSold: boolean;
 }
 
 function matchesDiscovery(item: BrowsableItem, discovery: string): boolean {
   const category = normalizeCategory(item.category);
   if (discovery === 'electronics-gaming') {
-    return category === 'electronics-technology' || category === 'video-games-gaming';
+    return category === 'electronics-and-accessories' || category === 'electronics-technology' || category === 'video-games-gaming';
   }
   if (discovery === 'collectibles-vintage') {
     if (category === 'toys-collectibles-memorabilia') return true;
@@ -66,6 +68,16 @@ export function matchesItem(item: BrowsableItem, params: BrowseParams): boolean 
     const child = normalizeSubcategory(parent?.id ?? '', params.subcategory);
     if (!parent?.subcategories.some(candidate => candidate.id === child)) return false;
     if (normalizeSubcategory(category, item.subcategory ?? '') !== child) return false;
+  }
+  if (params.itemType) {
+    if (!params.category || !params.subcategory || !item.itemType) return false;
+    try {
+      const selected = categoryFields(params.category, params.subcategory, params.itemType);
+      const actual = categoryFields(item.category, item.subcategory, item.itemType);
+      if (actual.itemType !== selected.itemType) return false;
+    } catch {
+      return false;
+    }
   }
   return true;
 }

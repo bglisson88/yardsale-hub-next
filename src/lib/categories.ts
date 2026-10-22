@@ -15,18 +15,87 @@ export interface Category {
   subcategories: Subcategory[];
 }
 
-function defineCategory(id: string, label: string, children: string[]): Category {
+function slug(value: string): string {
+  return value.toLowerCase().replace(/['’]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+function defineCategory(
+  id: string,
+  label: string,
+  children: (string | { label: string; itemTypes: string[] })[],
+): Category {
   return {
     id,
     label,
-    subcategories: children.map(child => ({
-      id: `${id}/${child.toLowerCase().replace(/['’]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`,
-      label: child,
-    })),
+    subcategories: children.map(child => {
+      const label = typeof child === 'string' ? child : child.label;
+      const childId = `${id}/${slug(label)}`;
+      return {
+        id: childId,
+        label,
+        ...(typeof child !== 'string' && {
+          itemTypes: child.itemTypes.map(label => ({ id: `${childId}/${slug(label)}`, label })),
+        }),
+      };
+    }),
   };
 }
 
 export const CATEGORIES: Category[] = [
+  defineCategory('garage-sales-estate-sales-and-events', 'Garage Sales, Estate Sales, and Events', [
+    'Yard Sales', 'Garage Sales', 'Estate Sales', 'Multi-Family', 'Neighborhood Sales',
+    'Auctions', 'Live Sales', 'Other Events',
+  ]),
+  defineCategory('women', 'Women', [
+    { label: 'Clothing', itemTypes: ['Tops', 'Bottoms', 'Skirts', 'Dresses', 'Activewear', 'Formal Wear', 'Jackets & Winter Wear', "Other Women's Clothing"] },
+    { label: 'Shoes', itemTypes: ['Sneakers', 'Sandals & Slides', 'Boots', 'Formal', "Other Women's Shoes"] },
+    { label: 'Jewelry', itemTypes: ['Watches', 'Bracelets', 'Rings', 'Necklaces', 'Earrings', "Other Women's Jewelry"] },
+    { label: 'Bags', itemTypes: ['Purses', 'Handbags', 'Wristlets', 'Beach Bags', 'Duffel Bags', 'Backpacks', 'Wallets', "Other Women's Bags"] },
+    { label: 'Accessories', itemTypes: ['Hair Accessories', 'Hats', 'Belts', 'Sunglasses', "Other Women's Accessories"] },
+    { label: 'Beauty Supplies', itemTypes: ['Hair', 'Nails', 'Skin', 'Face', 'Beauty Tools', 'Perfumes', "Other Women's Beauty Supplies"] },
+  ]),
+  defineCategory('men', 'Men', [
+    { label: 'Clothing', itemTypes: ['Shirts', 'Jeans', 'Shorts', 'Activewear', 'Formal Wear', 'Jackets & Winter Wear', "Other Men's Clothing"] },
+    { label: 'Shoes', itemTypes: ['Sneakers', 'Sandals & Slides', 'Boots', 'Formal', "Other Men's Shoes"] },
+    { label: 'Jewelry', itemTypes: ['Watches', 'Bracelets', 'Rings', 'Necklaces', 'Earrings', "Other Men's Jewelry"] },
+    { label: 'Bags', itemTypes: ['Duffel Bags', 'Backpacks', 'Wallets', 'Suitcases', "Other Men's Bags"] },
+    { label: 'Accessories', itemTypes: ['Hats', 'Belts', 'Sunglasses', "Other Men's Accessories"] },
+    { label: 'Grooming Supplies', itemTypes: ['Hair', 'Skin', 'Face', 'Grooming Tools', 'Colognes', "Other Men's Grooming Supplies"] },
+  ]),
+  defineCategory('kids-baby', 'Kids & Baby', [
+    'Girls Clothing', 'Girls Shoes', 'Boys Clothing', 'Boys Shoes', 'Car Seats',
+    'Strollers & Carriers', 'Baby Safety', 'Nursery Furniture', 'Baby Essentials',
+    'Maternity', 'Toys', 'Other Kids & Baby',
+  ]),
+  defineCategory('electronics-and-accessories', 'Electronics', [
+    { label: 'Phones & Tablets', itemTypes: ['Cell Phones', 'Tablets', 'E-Readers', 'Landlines', 'Chargers & Cables', 'Phone & Tablet Accessories', 'Other Cell Phones & Tablets'] },
+    { label: 'Computers & Accessories', itemTypes: ['Desktop', 'Laptop', 'Gaming PC', 'Monitors', 'Desks & Chairs', 'Computer Accessories', 'Other Computers & Accessories'] },
+    { label: 'TVs & Projectors', itemTypes: ['Televisions', 'Projectors', 'Media Players', 'Streaming Devices', 'TV & Projector Accessories', 'Other TVs & Projectors'] },
+    { label: 'Audio', itemTypes: ['Home Audio', 'Car Audio', 'Headphones & Earbuds', 'Outdoor Audio', 'Portable Audio', 'Audio Accessories', 'Other Audio'] },
+    { label: 'Video Games', itemTypes: ['Consoles', 'Gaming Computers', 'VR', 'Games', 'Retro Gaming', 'Handheld Gaming', 'Video Game Accessories', 'Other Video Games'] },
+    { label: 'Wearables', itemTypes: ['Fitness Trackers', 'Smart Rings', 'Smart Glasses', 'Wearable Accessories', 'Other Wearables'] },
+    'Other Electronics',
+  ]),
+  defineCategory('home-garden', 'Home & Garden', [
+    'Indoor Furniture', 'Outdoor Furniture', 'Decorations & Accessories', 'Bedding',
+    'Linens', 'Tools', 'Gas Powered Lawn Equipment', 'Battery Powered Lawn Equipment',
+    'Lawn Tools', 'Seasonal Decorations & Items', 'Office',
+  ]),
+  defineCategory('books-media', 'Books & Media', [
+    { label: 'Reading', itemTypes: ['Fiction', 'Nonfiction', "Children's Books", 'Comics & Graphic Novels', 'Magazines'] },
+    { label: 'Music', itemTypes: ['Record Players & Records', 'CDs', 'Cassettes', '8-Track'] },
+    { label: 'Video', itemTypes: ['DVDs & DVD Players', 'Blu-ray & Blu-ray Players', 'VCRs & VHS Tapes'] },
+  ]),
+  defineCategory('sports-outdoors', 'Sports & Outdoors', [
+    { label: 'Team Sports', itemTypes: ['Baseball', 'Football', 'Basketball', 'Track & Field', 'Hockey', 'Soccer', 'Other Team Sports'] },
+    'Racket Sports', 'Hunting', 'Fishing', 'Camping', 'Health & Fitness',
+    'Sports on Wheels', 'Water Sports',
+  ]),
+  defineCategory('more', 'More', ['Pet Supplies', 'Vehicles', 'Boats', 'Motorcycles', 'General']),
+];
+
+// Retain historical IDs and children for saved URLs and existing listings, not the header.
+const LEGACY_CATEGORIES: Category[] = [
   defineCategory('clothing-shoes-accessories', 'Clothing, Shoes & Accessories', [
     "Women's Clothing", "Men's Clothing", 'Unisex Clothing', "Kids' Clothing",
     'Vintage & Y2K Fashion', 'Designer & Luxury Fashion', 'Streetwear',
@@ -147,14 +216,16 @@ const LEGACY_ALIASES: Record<string, string> = {
 
 export function normalizeCategory(value: string): string {
   const key = value.trim().toLowerCase();
-  return CATEGORIES.find(
+  // Historical free-text aliases keep their original meaning; new links use canonical IDs.
+  if (LEGACY_ALIASES[key]) return LEGACY_ALIASES[key];
+  return [...CATEGORIES, ...LEGACY_CATEGORIES].find(
     category => category.id === key || category.label.toLowerCase() === key,
-  )?.id ?? LEGACY_ALIASES[key] ?? value;
+  )?.id ?? value;
 }
 
 export function getCategory(value: string): Category | undefined {
   const id = normalizeCategory(value);
-  return CATEGORIES.find(category => category.id === id);
+  return [...CATEGORIES, ...LEGACY_CATEGORIES].find(category => category.id === id);
 }
 
 export function categoryLabel(value: string): string {
@@ -201,10 +272,13 @@ export function categoryFields(
   return fields;
 }
 
-export function categoryHref(category: string, subcategory?: string): string {
+export function categoryHref(category: string, subcategory?: string, itemType?: string): string {
   const params = new URLSearchParams({ category: normalizeCategory(category) });
   if (subcategory) {
     params.set('subcategory', normalizeSubcategory(category, subcategory));
+  }
+  if (itemType) {
+    params.set('itemType', categoryFields(category, subcategory, itemType).itemType!);
   }
   return `/items?${params.toString()}`;
 }

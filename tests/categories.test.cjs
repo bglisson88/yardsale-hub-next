@@ -24,18 +24,18 @@ const expected = [
   ['garage-sales-bundles-local-finds', 'Garage Sales, Bundles & Local Finds', 'Upcoming Garage Sales;Estate Sales;Moving Sales;Multi-Family Yard Sales;Community & Neighborhood Sales;Flea Market Finds;Thrift & Resale Shop Finds;Bulk Lots & Bundles;Free Items;Curb Alerts;Moving Clearance;Miscellaneous Household Items'],
 ];
 
-test('all 15 parents and 210 exact child labels have stable unique scoped IDs', () => {
-  assert.equal(CATEGORIES.length, 15);
-  assert.deepEqual(CATEGORIES.map(({ id, label, subcategories }) =>
+test('historical parents and children retain stable IDs for saved URLs and listings', () => {
+  const legacy = expected.map(([id]) => getCategory(id));
+  assert.deepEqual(legacy.map(({ id, label, subcategories }) =>
     [id, label, subcategories.map(child => child.label).join(';')]), expected);
-  assert.deepEqual(CATEGORIES.map(category => category.subcategories.length),
+  assert.deepEqual(legacy.map(category => category.subcategories.length),
     [16, 16, 15, 11, 15, 14, 16, 15, 14, 15, 15, 14, 12, 10, 12]);
-  const ids = CATEGORIES.flatMap(category => [
+  const ids = legacy.flatMap(category => [
     category.id, ...category.subcategories.map(child => child.id),
   ]);
   assert.equal(ids.length, 225);
   assert.equal(new Set(ids).size, ids.length);
-  for (const parent of CATEGORIES) {
+  for (const parent of legacy) {
     for (const child of parent.subcategories) {
       const slug = child.label.toLowerCase().replace(/['’]/g, '')
         .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -53,13 +53,13 @@ test('legacy parents and exact modern labels normalize without fabricating child
     'Clothing & Accessories': 0, 'Home & Furniture': 1, Miscellaneous: 14,
   };
   for (const [alias, index] of Object.entries(aliases)) {
-    const parent = CATEGORIES[index];
+    const parent = getCategory(expected[index][0]);
     assert.equal(normalizeCategory(alias), parent.id);
     assert.equal(getCategory(alias), parent);
     assert.equal(categoryLabel(alias), parent.label);
     assert.deepEqual(categoryFields(alias), { category: parent.id });
   }
-  for (const parent of CATEGORIES) {
+  for (const parent of expected.map(([id]) => getCategory(id))) {
     assert.equal(normalizeCategory(parent.id), parent.id);
     assert.equal(normalizeCategory(parent.label), parent.id);
   }
@@ -94,7 +94,7 @@ test('child normalization and display require the correct parent', () => {
 });
 
 test('item types remain optional and validate against their selected child', () => {
-  const parent = CATEGORIES[0];
+  const parent = getCategory('Clothing');
   const child = parent.subcategories[0];
   assert.throws(() => categoryFields(parent.id, undefined, 'type'));
   assert.throws(() => categoryFields(parent.id, child.id, 'type'));
@@ -128,7 +128,7 @@ test('serialization omits absent fields and preserves item/yard-sale association
 });
 
 test('links use canonical scoped categories and URLSearchParams encoding', () => {
-  const parent = CATEGORIES[0];
+  const parent = getCategory('Clothing');
   const child = parent.subcategories[0];
   assert.equal(categoryHref('Clothing', child.label),
     `/items?${new URLSearchParams({ category: parent.id, subcategory: child.id })}`);

@@ -54,3 +54,25 @@ test('desktop dropdown and mobile accordion share emerald active states and slat
   assert.match(html, /fixed inset-0 z-30 bg-black\/25/);
   assert.doesNotMatch(html, /(?:bg|text|border|outline)-(?:blue|gray)-|bg-white/);
 });
+
+test('top-level categories wrap without horizontal scrolling or scroll buttons', () => {
+  const html = renderNavigation();
+  assert.match(html, /<ul class="flex flex-wrap">/);
+  assert.doesNotMatch(html, /overflow-x-auto|w-max|Scroll categories (left|right)/);
+  for (const parent of taxonomy.CATEGORIES) {
+    const encoded = parent.label.replaceAll('&', '&amp;');
+    assert.ok(html.includes(encoded));
+  }
+});
+
+test('both disclosure layouts render nested tier-three links with scoped routes', () => {
+  for (const [index, parent] of taxonomy.CATEGORIES.entries()) {
+    const html = renderNavigation(index);
+    for (const child of parent.subcategories) {
+      for (const type of child.itemTypes ?? []) {
+        const href = taxonomy.categoryHref(parent.id, child.id, type.id).replaceAll('&', '&amp;');
+        assert.equal(html.split(`href="${href}"`).length - 1, 2);
+      }
+    }
+  }
+});

@@ -291,13 +291,13 @@ test('event destination honors restored title search together with existing loca
   }
 });
 
-test('homepage quick links retain existing category IDs and one layout strip mount', () => {
+test('homepage quick links use the updated taxonomy and one layout strip mount', () => {
   const page = harness('src/app/page.tsx');
-  page.click('Clothing, Shoes & Accessories');
+  page.click('Women');
   const group = page.find(node => node.props?.id === 'category-subcategories');
   assert.ok(group);
-  assert.ok(page.find(node => node.props?.href?.includes('category=clothing-shoes-accessories'), group));
-  page.click('Clothing, Shoes & Accessories');
+  assert.ok(page.find(node => node.props?.href?.includes('category=women'), group));
+  page.click('Women');
   assert.equal(page.find(node => node.props?.id === 'category-subcategories'), undefined);
   const layout = fs.readFileSync(path.join(root, 'src/app/layout.tsx'), 'utf8');
   const home = fs.readFileSync(path.join(root, 'src/app/page.tsx'), 'utf8');

@@ -39,7 +39,9 @@ export default function ListingCategoryFields({
           className={selectClass}
         >
           <option value="">{required ? 'Select a category' : 'All categories'}</option>
-          {category && !parent && <option value={category}>{category} (legacy)</option>}
+          {category && !CATEGORIES.some(value => value.id === normalizeCategory(category)) && (
+            <option value={normalizeCategory(category)}>{parent?.label ?? category} (legacy)</option>
+          )}
           {CATEGORIES.map(value => <option key={value.id} value={value.id}>{value.label}</option>)}
         </select>
       </div>
