@@ -5,14 +5,13 @@ import type { KeyboardEvent } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  ArrowRight, ChevronDown, ChevronLeft, ChevronRight, Grid, ShoppingBag,
+  ArrowRight, ChevronDown, Grid, ShoppingBag,
 } from 'lucide-react';
 import { CATEGORIES, categoryHref } from '@/lib/categories';
 
 export function CategoryNavigation() {
   const [openCategory, setOpenCategory] = useState<number | null>(null);
   const navigationRef = useRef<HTMLElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
   const desktopTriggers = useRef<(HTMLButtonElement | null)[]>([]);
   const mobileTriggers = useRef<(HTMLButtonElement | null)[]>([]);
   const desktopPanels = useRef<(HTMLDivElement | null)[]>([]);
@@ -22,10 +21,13 @@ export function CategoryNavigation() {
   const pointerFocus = useRef(false);
   const openSource = useRef<'hover' | 'focus' | 'click' | null>(null);
   const pendingFocus = useRef<'first' | 'last' | null>(null);
+  const hoverTimeout = useRef<ReturnType<typeof setTimeout>>();
   const id = useId();
   const pathname = usePathname();
   const category = openCategory === null ? null : CATEGORIES[openCategory];
   const focusClass = 'focus-visible:outline focus-visible:outline-2 focus-visible:!outline-offset-[-3px] focus-visible:outline-emerald-400';
+
+  useEffect(() => () => clearTimeout(hoverTimeout.current), [openCategory]);
 
   const focusLink = useCallback((index: number, position: 'first' | 'last') => {
     const panel = window.matchMedia('(min-width: 768px)').matches
@@ -153,6 +155,21 @@ export function CategoryNavigation() {
                   >
                     {subcategory.label}
                   </Link>
+                  {subcategory.itemTypes && (
+                    <ul className="mb-3 ml-3 border-l border-slate-700 pl-2">
+                      {subcategory.itemTypes.map(itemType => (
+                        <li key={itemType.id}>
+                          <Link
+                            href={categoryHref(current.id, subcategory.id, itemType.id)}
+                            onClick={() => setOpenCategory(null)}
+                            className={`block rounded-lg px-3 py-2 text-sm text-slate-400 hover:bg-slate-800 hover:text-emerald-400 ${focusClass}`}
+                          >
+                            {itemType.label}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </li>
               ))}
             </ul>
@@ -222,45 +239,33 @@ export function CategoryNavigation() {
               !event.currentTarget.contains(document.activeElement)) setOpenCategory(null);
         }}
       >
-        <div className="mx-auto hidden max-w-7xl items-center px-2 md:flex lg:px-6">
-          <button
-            type="button"
-            aria-label="Scroll categories left"
-            onClick={() => scrollRef.current?.scrollBy({ left: -320, behavior: 'smooth' })}
-            className={`shrink-0 rounded-lg p-2 text-emerald-400 hover:bg-slate-800 ${focusClass}`}
-          >
-            <ChevronLeft size={20} aria-hidden="true" />
-          </button>
-          <div ref={scrollRef} className="min-w-0 flex-1 overflow-x-auto">
-            <ul className="flex w-max">
-              {CATEGORIES.map((current, index) => (
-                <li
-                  key={current.id}
-                  className="shrink-0"
-                  onPointerEnter={(event) => {
-                    if (event.pointerType === 'mouse' &&
-                        !desktopPanels.current.some((panel) => panel?.contains(document.activeElement))) {
+        <div className="mx-auto hidden max-w-7xl px-2 md:block lg:px-6">
+          <ul className="flex flex-wrap">
+            {CATEGORIES.map((current, index) => (
+              <li
+                key={current.id}
+                className="min-w-0 max-w-full"
+                onPointerEnter={(event) => {
+                  if (event.pointerType === 'mouse' &&
+                      !desktopPanels.current.some((panel) => panel?.contains(document.activeElement))) {
+                    const open = () => {
                       lastTrigger.current = desktopTriggers.current[index];
                       if (openCategory !== index) openSource.current = 'hover';
                       setOpenCategory(index);
-                    }
-                  }}
-                >
-                  {renderTrigger(index, false)}
-                </li>
-              ))}
-            </ul>
-          </div>
-          <button
-            type="button"
-            aria-label="Scroll categories right"
-            onClick={() => scrollRef.current?.scrollBy({ left: 320, behavior: 'smooth' })}
-            className={`shrink-0 rounded-lg p-2 text-emerald-400 hover:bg-slate-800 ${focusClass}`}
-          >
-            <ChevronRight size={20} aria-hidden="true" />
-          </button>
+                    };
+                    // Allow the pointer to cross wrapped rows on its way to the open panel.
+                    if (openCategory !== null && openCategory !== index) {
+                      hoverTimeout.current = setTimeout(open, 200);
+                    } else open();
+                  }
+                }}
+                onPointerLeave={() => clearTimeout(hoverTimeout.current)}
+              >
+                {renderTrigger(index, false)}
+              </li>
+            ))}
+          </ul>
         </div>
-        {/* Keep the dropdown outside the horizontal scroller so it cannot be clipped. */}
         {CATEGORIES.map((current, index) => (
           <div
             key={current.id}

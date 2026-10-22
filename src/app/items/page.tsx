@@ -8,7 +8,7 @@ import Image from 'next/image';
 import { useState } from 'react';
 import { categoryLabel, subcategoryLabel } from '@/lib/categories';
 import { DISCOVERY_GROUPS, matchesItem, type BrowseParams } from '@/lib/discovery';
-import { CategoryFields } from '@/components/CategoryFields';
+import ListingCategoryFields from '@/components/CategoryFields';
 
 export default function Browse({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
   const { items, loading } = useItems();
@@ -25,6 +25,7 @@ function BrowseResults({ params, items, loading }: {
 }) {
   const [category, setCategory] = useState(params.category ?? '');
   const [subcategory, setSubcategory] = useState(params.subcategory ?? '');
+  const [itemType, setItemType] = useState(params.itemType ?? '');
   const { user } = useAuthContext();
   const filteredItems = items.filter(item => matchesItem(item, params));
   const group = params.discovery ? DISCOVERY_GROUPS[params.discovery] : undefined;
@@ -56,7 +57,11 @@ function BrowseResults({ params, items, loading }: {
           <label htmlFor="browse-location" className="block text-sm font-semibold text-gray-700 mb-2">Location (city or ZIP)</label>
           <input id="browse-location" name="location" defaultValue={params.location} className="w-full rounded-lg border border-gray-300 px-4 py-2" />
         </div>
-        <CategoryFields category={category} subcategory={subcategory} onChange={(parent, child) => { setCategory(parent); setSubcategory(child); }} />
+        <ListingCategoryFields category={category} subcategory={subcategory} itemType={itemType} onChange={values => {
+          setCategory(values.category);
+          setSubcategory(values.subcategory);
+          setItemType(values.itemType);
+        }} />
         <div className="flex items-center gap-4">
           <button type="submit" className="rounded-lg bg-blue-600 px-5 py-2 font-semibold text-white hover:bg-blue-700">Apply filters</button>
           <Link href="/items" className="text-blue-600 underline">Clear all filters</Link>
