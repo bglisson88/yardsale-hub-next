@@ -21,10 +21,13 @@ export function CategoryNavigation() {
   const pointerFocus = useRef(false);
   const openSource = useRef<'hover' | 'focus' | 'click' | null>(null);
   const pendingFocus = useRef<'first' | 'last' | null>(null);
+  const hoverTimeout = useRef<ReturnType<typeof setTimeout>>();
   const id = useId();
   const pathname = usePathname();
   const category = openCategory === null ? null : CATEGORIES[openCategory];
   const focusClass = 'focus-visible:outline focus-visible:outline-2 focus-visible:!outline-offset-[-3px] focus-visible:outline-emerald-400';
+
+  useEffect(() => () => clearTimeout(hoverTimeout.current), [openCategory]);
 
   const focusLink = useCallback((index: number, position: 'first' | 'last') => {
     const panel = window.matchMedia('(min-width: 768px)').matches
@@ -245,11 +248,18 @@ export function CategoryNavigation() {
                 onPointerEnter={(event) => {
                   if (event.pointerType === 'mouse' &&
                       !desktopPanels.current.some((panel) => panel?.contains(document.activeElement))) {
-                    lastTrigger.current = desktopTriggers.current[index];
-                    if (openCategory !== index) openSource.current = 'hover';
-                    setOpenCategory(index);
+                    const open = () => {
+                      lastTrigger.current = desktopTriggers.current[index];
+                      if (openCategory !== index) openSource.current = 'hover';
+                      setOpenCategory(index);
+                    };
+                    // Allow the pointer to cross wrapped rows on its way to the open panel.
+                    if (openCategory !== null && openCategory !== index) {
+                      hoverTimeout.current = setTimeout(open, 200);
+                    } else open();
                   }
                 }}
+                onPointerLeave={() => clearTimeout(hoverTimeout.current)}
               >
                 {renderTrigger(index, false)}
               </li>
