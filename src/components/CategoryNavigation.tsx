@@ -211,7 +211,7 @@ export function CategoryNavigation() {
           }
         }}
         onKeyDown={(event) => handleTriggerKey(event, index, mobile)}
-        className={`flex w-full items-center justify-between border-b-2 py-4 text-left font-semibold ${mobile ? 'gap-2 px-4 text-sm' : 'gap-0 whitespace-nowrap px-0 text-[9.5px] tracking-tighter lg:gap-0.5 lg:px-0.5 lg:text-xs xl:px-1 xl:text-[13px]'} ${focusClass} ${
+        className={`flex w-full items-center justify-between border-b-2 py-4 text-left font-semibold ${mobile ? 'gap-2 px-4 text-sm' : 'gap-0 whitespace-nowrap px-0 text-[9.5px] tracking-tighter lg:gap-0.5 lg:text-xs xl:px-0.5 xl:text-[13px]'} ${focusClass} ${
           expanded ? 'border-emerald-400 bg-slate-800 text-emerald-400' : 'border-transparent text-slate-300 hover:bg-slate-800 hover:text-emerald-400'
         }`}
       >
@@ -240,7 +240,7 @@ export function CategoryNavigation() {
         }}
       >
         <div className="hidden px-1 md:block lg:px-6">
-          <ul className="flex flex-nowrap justify-between">
+          <ul className="flex flex-nowrap gap-0 lg:gap-0.5">
             {CATEGORIES.map((current, index) => (
               <li
                 key={current.id}

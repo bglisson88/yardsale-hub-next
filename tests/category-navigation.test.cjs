@@ -55,9 +55,9 @@ test('desktop dropdown and mobile accordion share emerald active states and slat
   assert.doesNotMatch(html, /(?:bg|text|border|outline)-(?:blue|gray)-|bg-white/);
 });
 
-test('desktop categories use a full-width row with larger labels and unchanged mobile sizing', () => {
+test('desktop categories use tighter gaps and padding with unchanged font sizes and mobile sizing', () => {
   const html = renderNavigation();
-  assert.match(html, /<div class="hidden px-1 md:block lg:px-6"><ul class="flex flex-nowrap justify-between">/);
+  assert.match(html, /<div class="hidden px-1 md:block lg:px-6"><ul class="flex flex-nowrap gap-0 lg:gap-0\.5">/);
   assert.match(html, /max-h-\[65dvh\] max-w-7xl/);
   assert.equal(taxonomy.CATEGORIES.length, 9);
   const desktopTriggers = [...html.matchAll(/<button[^>]*id="[^"]*-desktop-\d+-trigger"[^>]*class="([^"]*)"/g)];
@@ -65,7 +65,7 @@ test('desktop categories use a full-width row with larger labels and unchanged m
   assert.equal(desktopTriggers.length, 9);
   assert.equal(mobileTriggers.length, 9);
   for (const [, classes] of desktopTriggers) {
-    assert.match(classes, /gap-0 whitespace-nowrap px-0 text-\[9\.5px\] tracking-tighter lg:gap-0\.5 lg:px-0\.5 lg:text-xs xl:px-1 xl:text-\[13px\]/);
+    assert.match(classes, /gap-0 whitespace-nowrap px-0 text-\[9\.5px\] tracking-tighter lg:gap-0\.5 lg:text-xs xl:px-0\.5 xl:text-\[13px\]/);
   }
   for (const [, classes] of mobileTriggers) {
     assert.match(classes, /gap-2 px-4 text-sm/);
