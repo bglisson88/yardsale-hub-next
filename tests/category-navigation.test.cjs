@@ -57,7 +57,7 @@ test('desktop dropdown and mobile accordion share emerald active states and slat
 
 test('desktop categories use tighter gaps and padding with unchanged font sizes and mobile sizing', () => {
   const html = renderNavigation();
-  assert.match(html, /<div class="hidden px-1 md:block lg:px-6"><ul class="flex flex-nowrap gap-0 lg:gap-0\.5">/);
+  assert.match(html, /<div class="hidden px-1 md:block lg:px-6"><ul class="flex flex-nowrap justify-center gap-0 lg:gap-0\.5">/);
   assert.match(html, /max-h-\[65dvh\] max-w-7xl/);
   assert.equal(taxonomy.CATEGORIES.length, 9);
   const desktopTriggers = [...html.matchAll(/<button[^>]*id="[^"]*-desktop-\d+-trigger"[^>]*class="([^"]*)"/g)];

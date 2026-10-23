@@ -240,7 +240,7 @@ export function CategoryNavigation() {
         }}
       >
         <div className="hidden px-1 md:block lg:px-6">
-          <ul className="flex flex-nowrap gap-0 lg:gap-0.5">
+          <ul className="flex flex-nowrap justify-center gap-0 lg:gap-0.5">
             {CATEGORIES.map((current, index) => (
               <li
                 key={current.id}
