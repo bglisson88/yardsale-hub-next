@@ -112,7 +112,7 @@ export default function Events({ searchParams }: { searchParams: SearchParams })
                   </div>
                   <div className="flex items-center gap-2">
                     <Users size={16} className="text-blue-600" />
-                    <span>{event.itemCount} items</span>
+                    <span>View sale items</span>
                   </div>
                 </div>
               </div>

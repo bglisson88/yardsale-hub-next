@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { collection, addDoc, deleteField, doc, getDoc, updateDoc, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, deleteField, doc, getDoc, getDocs, query, updateDoc, where, Timestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage, auth } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
@@ -13,7 +13,7 @@ import { useAuthContext } from '@/hooks';
 import { LoadingSpinner } from '@/components';
 import CategoryFields from '@/components/CategoryFields';
 import { categoryFields, getCategory } from '@/lib/categories';
-import type { Item } from '@/types';
+import type { Item, YardSaleEvent } from '@/types';
 
 const emptyForm = {
   title: '',
@@ -25,14 +25,17 @@ const emptyForm = {
   originalPrice: '',
   condition: 'good',
   location: '',
+  yardSaleId: '',
 };
 
-export default function ItemForm({ itemId }: { itemId?: string }) {
+export default function ItemForm({ itemId, initialYardSaleId }: { itemId?: string; initialYardSaleId?: string }) {
   const { user, loading: authLoading } = useAuthStore();
   useAuthContext();
   const [loading, setLoading] = useState(false);
   const [photos, setPhotos] = useState<{ url: string; file?: File }[]>([]);
   const [formData, setFormData] = useState(emptyForm);
+  const [yardSaleEvents, setYardSaleEvents] = useState<YardSaleEvent[]>([]);
+  const [yardSaleEventsError, setYardSaleEventsError] = useState('');
   const [loadedItem, setLoadedItem] = useState<{ key: string; item: Item } | null>(null);
   const [fetchError, setFetchError] = useState<{ key: string; message: string } | null>(null);
   const [taxonomyChanged, setTaxonomyChanged] = useState(false);
@@ -60,9 +63,42 @@ export default function ItemForm({ itemId }: { itemId?: string }) {
 
   useEffect(() => {
     let cancelled = false;
+    if (authLoading || !userId) return;
+    const loadYardSaleEvents = async () => {
+      try {
+        const snapshot = await getDocs(query(
+          collection(db, 'yardSaleEvents'),
+          where('userId', '==', userId),
+        ));
+        if (cancelled) return;
+        const events = snapshot.docs.map(document => {
+          const data = document.data();
+          return {
+            ...data,
+            id: document.id,
+            startDate: data.startDate?.toDate(),
+            endDate: data.endDate?.toDate(),
+            createdAt: data.createdAt?.toDate(),
+            updatedAt: data.updatedAt?.toDate(),
+          } as YardSaleEvent;
+        });
+        setYardSaleEvents(events.sort((a, b) => a.startDate.getTime() - b.startDate.getTime()));
+        setYardSaleEventsError('');
+      } catch (error) {
+        if (!cancelled) {
+          setYardSaleEventsError(error instanceof Error ? error.message : 'Unable to load your yard sale events.');
+        }
+      }
+    };
+    void loadYardSaleEvents();
+    return () => { cancelled = true; };
+  }, [authLoading, userId]);
+
+  useEffect(() => {
+    let cancelled = false;
     setLoadedItem(null);
     setFetchError(null);
-    setFormData(emptyForm);
+    setFormData({ ...emptyForm, yardSaleId: initialYardSaleId ?? '' });
     previewURLs.current.forEach(url => URL.revokeObjectURL(url));
     previewURLs.current.clear();
     setPhotos([]);
@@ -88,6 +124,7 @@ export default function ItemForm({ itemId }: { itemId?: string }) {
           originalPrice: item.originalPrice == null ? '' : String(item.originalPrice),
           condition: item.condition,
           location: item.location ?? '',
+          yardSaleId: item.yardSaleId ?? '',
         });
         setPhotos((item.photoURLs ?? []).map(url => ({ url })));
         setLoadedItem({ key: identity, item });
@@ -97,7 +134,7 @@ export default function ItemForm({ itemId }: { itemId?: string }) {
     }
     void loadItem();
     return () => { cancelled = true; };
-  }, [itemId, authLoading, userId, identity]);
+  }, [itemId, authLoading, userId, identity, initialYardSaleId]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setFormData({
@@ -172,6 +209,15 @@ export default function ItemForm({ itemId }: { itemId?: string }) {
       if ((!itemId || taxonomyChanged) && !getCategory(formData.category)) {
         throw new Error('Please select a valid category.');
       }
+      const yardSaleChanged = !itemId || formData.yardSaleId !== loadedItem?.item.yardSaleId;
+      if (formData.yardSaleId && yardSaleChanged) {
+        const eventSnapshot = await getDoc(doc(db, 'yardSaleEvents', formData.yardSaleId));
+        assertCurrent();
+        if (!eventSnapshot.exists()) throw new Error('The selected yard sale event no longer exists.');
+        if (eventSnapshot.data().userId !== ownerId) {
+          throw new Error('You can only attach items to your own yard sale events.');
+        }
+      }
       assertCurrent();
       const itemRef = itemId ? doc(db, 'items', itemId) : null;
       const assertOwnership = async () => {
@@ -216,12 +262,16 @@ export default function ItemForm({ itemId }: { itemId?: string }) {
         assertCurrent();
         await updateDoc(itemRef, {
           ...fields,
+          ...(formData.yardSaleId !== loadedItem?.item.yardSaleId
+            ? { yardSaleId: formData.yardSaleId || deleteField() }
+            : {}),
           ...(taxonomyChanged && !taxonomy.subcategory ? { subcategory: deleteField() } : {}),
           ...(taxonomyChanged && !taxonomy.itemType ? { itemType: deleteField() } : {}),
         });
       } else {
         await addDoc(collection(db, 'items'), {
           ...fields,
+          ...(formData.yardSaleId ? { yardSaleId: formData.yardSaleId } : {}),
           userId: ownerId,
           createdAt: Timestamp.now(),
           views: 0,
@@ -305,6 +355,28 @@ export default function ItemForm({ itemId }: { itemId?: string }) {
               setTaxonomyChanged(true);
             }}
           />
+            <div>
+              <label htmlFor="yardSaleId" className="block text-sm font-semibold text-gray-700 mb-2">Add to a yard sale event (Optional)</label>
+              <select
+                id="yardSaleId"
+                name="yardSaleId"
+                value={formData.yardSaleId}
+                onChange={handleInputChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="">List this item separately</option>
+                {formData.yardSaleId && !yardSaleEvents.some(event => event.id === formData.yardSaleId) && (
+                  <option value={formData.yardSaleId}>Current linked yard sale</option>
+                )}
+                {yardSaleEvents.map(event => (
+                  <option key={event.id} value={event.id}>
+                    {event.title} — {event.startDate.toLocaleDateString()}
+                  </option>
+                ))}
+              </select>
+              {yardSaleEventsError && <p role="alert" className="mt-2 text-sm text-red-600">Could not load yard sale events: {yardSaleEventsError}</p>}
+              <p className="mt-1 text-sm text-gray-500">The item keeps its category and will also appear in the selected sale.</p>
+            </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">Condition</label>
               <select
