@@ -16,12 +16,63 @@ const item = (category, extra = {}) => ({
 const browseParams = href =>
   Object.fromEntries(new URL(href, 'https://example.test').searchParams);
 
+test('homepage discovery shortcuts are the five requested tiles', () => {
+  assert.deepEqual(DISCOVERY_SHORTCUTS.map(({ label }) => label), [
+    'Fashion & Accessories',
+    'Home & Furniture',
+    'Electronics & Gaming',
+    'Collectibles & Vintage',
+    'Garage Sales Near Me',
+  ]);
+  assert.deepEqual(DISCOVERY_SHORTCUTS.map(({ href }) => href), [
+    '/items?discovery=fashion',
+    '/items?discovery=home',
+    '/items?discovery=electronics-gaming',
+    '/items?discovery=collectibles-vintage',
+    '/events',
+  ]);
+});
+
+test('fashion discovery spans current and legacy fashion categories, but excludes beauty and nursery goods', () => {
+  const params = browseParams(DISCOVERY_SHORTCUTS.find(
+    shortcut => shortcut.id === 'fashion',
+  ).href);
+  for (const [category, subcategory] of [
+    ['women', 'Clothing'],
+    ['men', 'Accessories'],
+    ['kids-baby', 'Girls Clothing'],
+    ['baby-kids-parenting', 'Baby Clothing'],
+    ['clothing-shoes-accessories', 'Vintage & Y2K Fashion'],
+  ]) {
+    assert.equal(matchesItem(item(category, { subcategory }), params), true);
+  }
+  assert.equal(matchesItem(item('women', { subcategory: 'Beauty Supplies' }), params), false);
+  assert.equal(matchesItem(item('kids-baby', { subcategory: 'Nursery Furniture' }), params), false);
+  assert.equal(matchesItem(item('home-garden'), params), false);
+});
+
+test('home discovery spans current home and legacy home and kitchen categories', () => {
+  const params = browseParams(DISCOVERY_SHORTCUTS.find(
+    shortcut => shortcut.id === 'home',
+  ).href);
+  for (const category of [
+    'home-garden',
+    'Home & Garden',
+    'home-furniture-decor',
+    'kitchen-dining-specialty-household',
+  ]) {
+    assert.equal(matchesItem(item(category), params), true);
+  }
+  assert.equal(matchesItem(item('women'), params), false);
+});
+
 test('electronics discovery spans electronics and gaming, including legacy electronics', () => {
   const params = browseParams(DISCOVERY_SHORTCUTS.find(
     shortcut => shortcut.id === 'electronics-gaming',
   ).href);
   for (const category of [
-    'electronics-technology', 'Electronics', 'video-games-gaming', 'Video Games & Gaming',
+    'electronics-and-accessories', 'Electronics',
+    'electronics-technology', 'Video Games & Gaming', 'video-games-gaming',
   ]) {
     assert.equal(matchesItem(item(category), params), true);
   }

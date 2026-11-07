@@ -1,16 +1,24 @@
 import {
-  categoryFields, categoryHref, getCategory, normalizeCategory, normalizeSubcategory,
+  categoryFields, getCategory, normalizeCategory, normalizeSubcategory,
 } from './categories';
 
 export const DISCOVERY_SHORTCUTS = [
-  { id: 'fashion', label: 'Fashion & Accessories', href: categoryHref('Clothing') },
-  { id: 'home', label: 'Home & Furniture', href: categoryHref('Furniture') },
+  { id: 'fashion', label: 'Fashion & Accessories', href: '/items?discovery=fashion' },
+  { id: 'home', label: 'Home & Furniture', href: '/items?discovery=home' },
   { id: 'electronics-gaming', label: 'Electronics & Gaming', href: '/items?discovery=electronics-gaming' },
   { id: 'collectibles-vintage', label: 'Collectibles & Vintage', href: '/items?discovery=collectibles-vintage' },
   { id: 'events', label: 'Garage Sales Near Me', href: '/events' },
 ] as const;
 
 export const DISCOVERY_GROUPS: Record<string, { label: string; description: string }> = {
+  fashion: {
+    label: 'Fashion & Accessories',
+    description: 'Clothing, shoes, jewelry, bags, and accessories.',
+  },
+  home: {
+    label: 'Home & Furniture',
+    description: 'Furniture, home goods, kitchenware, and outdoor living.',
+  },
   'electronics-gaming': {
     label: 'Electronics & Gaming',
     description: 'All Electronics & Technology and Video Games & Gaming listings.',
@@ -41,17 +49,58 @@ interface BrowsableItem {
 
 function matchesDiscovery(item: BrowsableItem, discovery: string): boolean {
   const category = normalizeCategory(item.category);
+  const subcategory = normalizeSubcategory(category, item.subcategory ?? '');
+  if (discovery === 'fashion') {
+    if (category === 'clothing-shoes-accessories') return true;
+    if (category === 'women' || category === 'men') {
+      return !subcategory || [
+        `${category}/clothing`,
+        `${category}/shoes`,
+        `${category}/jewelry`,
+        `${category}/bags`,
+        `${category}/accessories`,
+      ].includes(subcategory);
+    }
+    if (category === 'kids-baby') {
+      return [
+        'kids-baby/girls-clothing',
+        'kids-baby/girls-shoes',
+        'kids-baby/boys-clothing',
+        'kids-baby/boys-shoes',
+        'kids-baby/maternity',
+      ].includes(subcategory);
+    }
+    if (category === 'baby-kids-parenting') {
+      return [
+        'baby-kids-parenting/baby-clothing',
+        'baby-kids-parenting/kids-clothing',
+        'baby-kids-parenting/baby-shoes-accessories',
+        'baby-kids-parenting/maternity-clothing-accessories',
+      ].includes(subcategory);
+    }
+    return false;
+  }
+  if (discovery === 'home') {
+    return [
+      'home-garden',
+      'home-furniture-decor',
+      'kitchen-dining-specialty-household',
+    ].includes(category);
+  }
   if (discovery === 'electronics-gaming') {
-    return category === 'electronics-and-accessories' || category === 'electronics-technology' || category === 'video-games-gaming';
+    return [
+      'electronics-and-accessories',
+      'electronics-technology',
+      'video-games-gaming',
+    ].includes(category);
   }
   if (discovery === 'collectibles-vintage') {
     if (category === 'toys-collectibles-memorabilia') return true;
-    const child = normalizeSubcategory(category, item.subcategory ?? '');
     return [
       'clothing-shoes-accessories/vintage-y2k-fashion',
       'kitchen-dining-specialty-household/vintage-kitchenware',
       'art-handmade-craft-supplies/vintage-craft-supplies',
-    ].includes(child);
+    ].includes(subcategory);
   }
   return false;
 }

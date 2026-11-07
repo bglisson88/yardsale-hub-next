@@ -8,6 +8,7 @@ const ts = require('typescript');
 const { renderToStaticMarkup } = require('react-dom/server');
 
 const root = path.join(__dirname, '..');
+const discoveryShortcuts = require(path.join(process.env.CATEGORY_TEST_BUILD, 'discovery.js')).DISCOVERY_SHORTCUTS;
 function load(file, mocks = {}) {
   const filename = path.join(root, file);
   const module = { exports: {} };
@@ -79,6 +80,7 @@ function harness(file, initialAuth = { user: null, loading: false }) {
     '@/components/ItemCard': { ItemCard: stub },
     '@/components/EventCard': { EventCard: stub },
     '@/lib/categories': taxonomy,
+    '@/lib/discovery': require(path.join(process.env.CATEGORY_TEST_BUILD, 'discovery.js')),
     globals: {
       document,
       window: { matchMedia: () => ({
@@ -291,14 +293,13 @@ test('event destination honors restored title search together with existing loca
   }
 });
 
-test('homepage quick links use the updated taxonomy and one layout strip mount', () => {
+test('homepage shows exactly the five grouped category links and one layout strip mount', () => {
   const page = harness('src/app/page.tsx');
-  page.click('Women');
-  const group = page.find(node => node.props?.id === 'category-subcategories');
-  assert.ok(group);
-  assert.ok(page.find(node => node.props?.href?.includes('category=women'), group));
-  page.click('Women');
-  assert.equal(page.find(node => node.props?.id === 'category-subcategories'), undefined);
+  for (const shortcut of discoveryShortcuts) {
+    const tile = page.find(node => node.props?.href === shortcut.href);
+    assert.ok(tile, `Missing ${shortcut.label} tile`);
+  }
+  assert.equal(discoveryShortcuts.length, 5);
   const layout = fs.readFileSync(path.join(root, 'src/app/layout.tsx'), 'utf8');
   const home = fs.readFileSync(path.join(root, 'src/app/page.tsx'), 'utf8');
   assert.equal((layout.match(/<CategoryNavigation\s*\/>/g) || []).length, 1);
