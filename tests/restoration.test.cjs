@@ -291,6 +291,60 @@ test('event destination honors restored title search together with existing loca
   }
 });
 
+test('yard sale details show linked items and preserve their separate category', () => {
+  const event = {
+    id: 'sale-1',
+    title: 'Neighborhood Garage Sale',
+    address: '10 Main Street',
+    location: 'Town',
+    description: 'Saturday sale',
+    startDate: new Date('2026-11-08T09:00:00'),
+    endDate: new Date('2026-11-08T15:00:00'),
+    createdAt: new Date('2026-11-01'),
+    updatedAt: new Date('2026-11-01'),
+    photoURL: null,
+  };
+  const linkedItem = {
+    id: 'table-1',
+    title: 'Oak Dining Table',
+    category: 'Furniture',
+    price: 25,
+    location: 'Town',
+    condition: 'good',
+    photoURLs: [],
+    isSold: false,
+  };
+  let stateIndex = 0;
+  let itemQuery;
+  const { default: EventDetails } = load('src/app/events/[id]/page.tsx', {
+    react: {
+      ...React,
+      useState: () => [[event, false, ''][stateIndex++] , () => {}],
+      useEffect() {},
+    },
+    'firebase/firestore': {},
+    '@/lib/firebase': { db: {} },
+    '@/hooks': {
+      useItems: (...args) => {
+        itemQuery = args;
+        return { items: [linkedItem], loading: false };
+      },
+    },
+    '@/components': {
+      EmptyState: ({ title }) => React.createElement('p', null, title),
+      LoadingSpinner: () => null,
+    },
+    '@/lib/categories': load('src/lib/categories.ts'),
+    'next/link': { __esModule: true, default: 'a' },
+  });
+  const html = renderToStaticMarkup(React.createElement(EventDetails, { params: { id: event.id } }));
+  assert.deepEqual(itemQuery, [undefined, event.id]);
+  assert.ok(html.includes('Neighborhood Garage Sale'));
+  assert.ok(html.includes('Oak Dining Table'));
+  assert.ok(html.includes('Home, Furniture &amp; Decor'));
+  assert.ok(html.includes('/items/new?yardSaleId=sale-1'));
+});
+
 test('homepage quick links use the updated taxonomy and one layout strip mount', () => {
   const page = harness('src/app/page.tsx');
   page.click('Women');

@@ -134,3 +134,12 @@ test('yardSaleId associations neither affect discovery nor get mutated', () => {
   assert.equal(JSON.stringify(associated), snapshot);
   assert.equal(JSON.parse(snapshot).yardSaleId, 'yard-sale-1');
 });
+
+test('a table attached to a yard sale remains discoverable by title and its furniture category', () => {
+  const table = {
+    ...item('Furniture', { title: 'Oak dining table' }),
+    yardSaleId: 'garage-sale-1',
+  };
+  assert.equal(matchesItem(table, { search: 'table' }), true);
+  assert.equal(matchesItem(table, { search: 'table', category: 'Furniture' }), true);
+});

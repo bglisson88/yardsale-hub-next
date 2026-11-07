@@ -224,9 +224,22 @@ async function renderItemForm({ item, ...options } = {}) {
   const imports = {
     react: hooks,
     'firebase/firestore': {
-      doc: () => 'item-document',
+      doc: (_, collectionName, id) => ({ collectionName, id }),
       collection: (_, name) => name,
-      getDoc: async () => ({ exists: () => true, data: () => item, id: 'legacy-item' }),
+      query: (...args) => args,
+      where: (...args) => args,
+      getDocs: async () => ({
+        docs: (options.yardSaleEvents ?? []).map(event => ({
+          id: event.id,
+          data: () => event,
+        })),
+      }),
+      getDoc: async reference => reference.collectionName === 'yardSaleEvents'
+        ? {
+          exists: () => Boolean(options.selectedEvent),
+          data: () => options.selectedEvent,
+        }
+        : { exists: () => true, data: () => item, id: 'legacy-item' },
       updateDoc: async (_, fields) => { updates.push(fields); },
       addDoc: async (collection, fields) => {
         if (options.writeError) throw options.writeError;
@@ -516,6 +529,47 @@ test('create writes exact canonical payload, numeric prices, timestamps, and unc
     assert.deepEqual(form.successes, ['Item posted successfully!']);
     assert.deepEqual(form.pushes, ['/dashboard']);
   }
+});
+
+test('create can attach a categorized item to an owned yard sale event', async () => {
+  const event = {
+    id: 'sale-1',
+    title: 'Neighborhood Garage Sale',
+    userId: 'owner',
+    startDate: { toDate: () => new Date('2026-11-08T09:00:00') },
+    endDate: { toDate: () => new Date('2026-11-08T15:00:00') },
+  };
+  const form = await renderItemForm({ yardSaleEvents: [event], selectedEvent: event });
+  fillCreateForm(form);
+  const furniture = taxonomy.getCategory('Furniture');
+  form.changeClassification({
+    category: 'Furniture',
+    subcategory: furniture.subcategories[0].label,
+    itemType: '',
+  });
+  form.changeInput('yardSaleId', event.id);
+  await form.submit();
+  assert.equal(form.creates.length, 1);
+  assert.equal(form.creates[0].fields.category, furniture.id);
+  assert.equal(form.creates[0].fields.title, 'Coffee table');
+  assert.equal(form.creates[0].fields.yardSaleId, event.id);
+  assert.deepEqual(form.errors, []);
+});
+
+test('create rejects attaching an item to another seller’s yard sale', async () => {
+  const event = {
+    id: 'sale-2',
+    title: 'Another Seller’s Sale',
+    userId: 'someone-else',
+    startDate: { toDate: () => new Date('2026-11-08T09:00:00') },
+    endDate: { toDate: () => new Date('2026-11-08T15:00:00') },
+  };
+  const form = await renderItemForm({ yardSaleEvents: [event], selectedEvent: event });
+  fillCreateForm(form);
+  form.changeInput('yardSaleId', event.id);
+  await form.submit();
+  assert.equal(form.creates.length, 0);
+  assert.deepEqual(form.errors, ['You can only attach items to your own yard sale events.']);
 });
 
 test('create upload and write failures show error toast without success or navigation', async () => {
