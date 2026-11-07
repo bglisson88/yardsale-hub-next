@@ -11,7 +11,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { ItemCard } from '@/components/ItemCard';
 import { EventCard } from '@/components/EventCard';
 import { Logo } from '@/components/Logo';
-import { CATEGORIES, categoryHref } from '@/lib/categories';
+import { DISCOVERY_SHORTCUTS } from '@/lib/discovery';
 import type { YardSaleEvent } from '@/types';
 
 export default function Home() {
@@ -19,10 +19,8 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [location, setLocation] = useState('');
   const [searchType, setSearchType] = useState('items');
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const { items } = useItems();
   const [events, setEvents] = useState<YardSaleEvent[]>([]);
-  const category = CATEGORIES.find((entry) => entry.id === selectedCategory);
 
   useEffect(() => {
     let active = true;
@@ -92,12 +90,6 @@ export default function Home() {
                 </select>
                 <button type="submit" className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-slate-950 hover:bg-emerald-500 transition-colors">Search</button>
               </form>
-              <div className="flex flex-wrap items-center gap-2 mt-4 text-xs">
-                <span className="text-slate-400">Popular:</span>
-                {CATEGORIES.slice(0, 3).map((entry) => (
-                  <Link key={entry.id} href={categoryHref(entry.id)} className="rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-slate-300 hover:border-emerald-400 hover:text-emerald-300 transition-colors">{entry.label}</Link>
-                ))}
-              </div>
               <div className="flex flex-wrap gap-3 mt-7">
                 <Link href="/items/new" className="px-4 py-3 rounded-xl text-sm font-bold bg-emerald-600 text-slate-950 hover:bg-emerald-500 transition-colors">Sell an Item</Link>
                 <Link href={location.trim() ? `/events?${new URLSearchParams({ location: location.trim() })}` : '/events'} className="inline-flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-bold border border-slate-600 text-white hover:bg-slate-800 transition-colors">
@@ -130,23 +122,15 @@ export default function Home() {
 
       {/* Category quick links */}
       <section aria-labelledby="categories-heading" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10">
-        <h2 id="categories-heading" className="text-sm font-semibold text-slate-300 mb-4">A little of everything. Something for you.</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-          {CATEGORIES.map((entry) => (
-            <button key={entry.id} type="button" aria-expanded={selectedCategory === entry.id} aria-controls={selectedCategory === entry.id ? 'category-subcategories' : undefined} onClick={() => setSelectedCategory(selectedCategory === entry.id ? null : entry.id)} className={`bg-slate-900 border rounded-2xl hover:border-emerald-400 transition-colors p-3 text-center ${selectedCategory === entry.id ? 'border-emerald-400 ring-1 ring-emerald-400' : 'border-slate-800'}`}>
+        <h2 id="categories-heading" className="text-sm font-semibold text-slate-300 mb-4">Shop by category</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          {DISCOVERY_SHORTCUTS.map((entry) => (
+            <Link key={entry.id} href={entry.href} className="bg-slate-900 border border-slate-800 rounded-2xl hover:border-emerald-400 transition-colors p-3 text-center">
               <div className="flex justify-center text-emerald-400 mb-2" aria-hidden="true"><Lamp size={24} /></div>
               <p className="text-xs font-semibold text-slate-300">{entry.label}</p>
-            </button>
+            </Link>
           ))}
         </div>
-        {category && (
-          <div id="category-subcategories" className="mt-4 bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-wrap gap-2" role="group" aria-label={`${category.label} subcategories`}>
-            <Link href={categoryHref(category.id)} className="px-4 py-2 rounded-full text-sm font-semibold bg-emerald-600 text-slate-950 hover:bg-emerald-500">All {category.label}</Link>
-            {category.subcategories.map((sub) => (
-              <Link key={sub.id} href={categoryHref(category.id, sub.id)} className="px-4 py-2 rounded-full text-sm font-semibold bg-slate-800 text-slate-300 border border-slate-700 hover:border-emerald-400">{sub.label}</Link>
-            ))}
-          </div>
-        )}
       </section>
 
       {/* Latest Items */}
