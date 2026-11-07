@@ -16,7 +16,7 @@ const item = (category, extra = {}) => ({
 const browseParams = href =>
   Object.fromEntries(new URL(href, 'https://example.test').searchParams);
 
-test('homepage discovery shortcuts are the five requested tiles', () => {
+test('homepage discovery shortcuts are the five requested image tiles', () => {
   assert.deepEqual(DISCOVERY_SHORTCUTS.map(({ label }) => label), [
     'Fashion & Accessories',
     'Home & Furniture',
@@ -30,6 +30,13 @@ test('homepage discovery shortcuts are the five requested tiles', () => {
     '/items?discovery=electronics-gaming',
     '/items?discovery=collectibles-vintage',
     '/events',
+  ]);
+  assert.deepEqual(DISCOVERY_SHORTCUTS.map(({ image }) => image), [
+    '/category-tiles/fashion.jpg',
+    '/category-tiles/home-furniture.jpg',
+    '/category-tiles/electronics-gaming.jpg',
+    '/category-tiles/collectibles-vintage.jpg',
+    '/category-tiles/garage-sales.jpg',
   ]);
 });
 

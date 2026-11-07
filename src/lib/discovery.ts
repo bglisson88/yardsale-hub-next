@@ -3,11 +3,11 @@ import {
 } from './categories';
 
 export const DISCOVERY_SHORTCUTS = [
-  { id: 'fashion', label: 'Fashion & Accessories', href: '/items?discovery=fashion' },
-  { id: 'home', label: 'Home & Furniture', href: '/items?discovery=home' },
-  { id: 'electronics-gaming', label: 'Electronics & Gaming', href: '/items?discovery=electronics-gaming' },
-  { id: 'collectibles-vintage', label: 'Collectibles & Vintage', href: '/items?discovery=collectibles-vintage' },
-  { id: 'events', label: 'Garage Sales Near Me', href: '/events' },
+  { id: 'fashion', label: 'Fashion & Accessories', href: '/items?discovery=fashion', image: '/category-tiles/fashion.jpg' },
+  { id: 'home', label: 'Home & Furniture', href: '/items?discovery=home', image: '/category-tiles/home-furniture.jpg' },
+  { id: 'electronics-gaming', label: 'Electronics & Gaming', href: '/items?discovery=electronics-gaming', image: '/category-tiles/electronics-gaming.jpg' },
+  { id: 'collectibles-vintage', label: 'Collectibles & Vintage', href: '/items?discovery=collectibles-vintage', image: '/category-tiles/collectibles-vintage.jpg' },
+  { id: 'events', label: 'Garage Sales Near Me', href: '/events', image: '/category-tiles/garage-sales.jpg' },
 ] as const;
 
 export const DISCOVERY_GROUPS: Record<string, { label: string; description: string }> = {

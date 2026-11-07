@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
 import { Search, MapPin, ArrowRight, Radio, Lamp, Sparkles } from 'lucide-react';
@@ -125,9 +126,16 @@ export default function Home() {
         <h2 id="categories-heading" className="text-sm font-semibold text-slate-300 mb-4">Shop by category</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {DISCOVERY_SHORTCUTS.map((entry) => (
-            <Link key={entry.id} href={entry.href} className="bg-slate-900 border border-slate-800 rounded-2xl hover:border-emerald-400 transition-colors p-3 text-center">
-              <div className="flex justify-center text-emerald-400 mb-2" aria-hidden="true"><Lamp size={24} /></div>
-              <p className="text-xs font-semibold text-slate-300">{entry.label}</p>
+            <Link key={entry.id} href={entry.href} className="group relative aspect-[4/3] overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 text-left transition-colors hover:border-emerald-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-400">
+              <Image
+                src={entry.image}
+                alt=""
+                fill
+                sizes="(min-width: 1024px) 20vw, (min-width: 640px) 33vw, 50vw"
+                className="object-cover transition-transform duration-300 group-hover:scale-105"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/15 to-transparent" aria-hidden="true" />
+              <p className="absolute inset-x-3 bottom-3 text-sm font-bold text-white drop-shadow sm:inset-x-4 sm:bottom-4 sm:text-base">{entry.label}</p>
             </Link>
           ))}
         </div>
