@@ -159,6 +159,44 @@ migrated before those rules are deployed; see
 The new event flow is not production-ready until the rules are reviewed and
 deployed in coordination with that migration.
 
+### Marketplace rules compatibility
+
+The Emulator tests in `tests/firestore.rules.test.cjs` use fixtures matching
+signup, ItemForm, and message-send payloads; these are Firestore integration
+tests, not Firebase Authentication signup or browser end-to-end tests.
+They cover owner/private-profile access, public items, taxonomy field removal,
+message participants and read acknowledgements, and event-private deletion.
+Deleting an exact event's private record alone is denied; an atomic change to
+general visibility can delete it, as can an atomic deletion of both records.
+
+Production user, item, and message documents have **not** been inspected.
+Source compatibility and Emulator fixtures do not prove live data compatibility:
+
+- Users: `validUser` requires exactly `id`, `email`, `displayName`, `photoURL`,
+  `location`, `bio`, `createdAt`, and `updatedAt`, with the types in
+  `firestore.rules`. Missing fields, additional legacy fields, non-timestamp
+  dates, or an `id` different from the document ID can block owner updates.
+  Identity, email, and creation time cannot change.
+- Items: updates validate the entire resulting document. Missing `views`,
+  `isSold`, timestamps, or other required fields; extra legacy fields; numeric
+  strings; unknown condition values; more than five photos; and null optional
+  taxonomy/sale IDs can block edits. `originalPrice: null` and absent optional
+  taxonomy fields are supported. Unknown string category/subcategory/type IDs
+  are preserved, not validated against the current taxonomy by these rules.
+  Ownership, creation time, views, sold state, and sale association are immutable
+  through the current edit rule. ItemForm does not backfill missing counters.
+- Messages: new messages require the current sender/recipient/text/timestamp/
+  `read: false` structure. Existing reads depend on valid participant IDs;
+  malformed or missing IDs can block access. Only the recipient can change
+  `read: false` to `true`; missing or non-boolean legacy read states block that
+  update. Unlike users/items, read acknowledgements do not revalidate the whole
+  message, so additional legacy fields do not by themselves block them.
+
+Before deployment, an authorized operator must inspect these collections
+read-only for the above schema differences and resolve any incompatibilities
+under a separately approved data-change process. No production inspection or
+data change is performed by these tests.
+
 ### Prior menu work and scope
 
 This work starts from current `main`, not `copilot/fix-dashboard-counts`.

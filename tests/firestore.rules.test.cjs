@@ -1,5 +1,5 @@
 const fs = require('node:fs');
-const { before, after, test } = require('node:test');
+const { before, beforeEach, after, test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   initializeTestEnvironment,
@@ -8,11 +8,13 @@ const {
 } = require('@firebase/rules-unit-testing');
 const {
   collection,
+  deleteDoc,
   deleteField,
   doc,
   getDoc,
   getDocs,
   query,
+  orderBy,
   setDoc,
   Timestamp,
   updateDoc,
@@ -33,7 +35,235 @@ before(async () => {
 });
 
 after(async () => {
-  await environment.cleanup();
+  if (environment) await environment.cleanup();
+});
+
+beforeEach(async () => {
+  await environment.clearFirestore();
+});
+
+// Matches the Firestore document written by auth/signup/page.tsx.
+function signupDocument(uid) {
+  return {
+    id: uid,
+    email: `${uid}@example.test`,
+    displayName: 'Test Seller',
+    photoURL: null,
+    location: 'Nederland',
+    bio: '',
+    createdAt,
+    updatedAt: createdAt,
+  };
+}
+
+// Matches ItemForm's create payload, including null originalPrice.
+function itemDocument(uid, overrides = {}) {
+  return {
+    title: 'Used chair',
+    description: 'Good condition',
+    category: 'home-garden',
+    subcategory: 'home-garden/indoor-furniture',
+    price: 25,
+    originalPrice: null,
+    condition: 'good',
+    location: 'Nederland',
+    photoURLs: [],
+    updatedAt: createdAt,
+    userId: uid,
+    createdAt,
+    views: 0,
+    isSold: false,
+    ...overrides,
+  };
+}
+
+// Matches messages/page.tsx's send payload.
+function messageDocument() {
+  return {
+    senderId: 'alice',
+    recipientId: 'bob',
+    text: 'Is this available?',
+    createdAt,
+    read: false,
+  };
+}
+
+test('signup creates the exact application user document for its authenticated owner', async () => {
+  const ref = doc(database('alice'), 'users', 'alice');
+  await assertSucceeds(setDoc(ref, signupDocument('alice')));
+  assert.deepEqual((await getDoc(ref)).data(), signupDocument('alice'));
+  await assertFails(setDoc(doc(database('bob'), 'users', 'alice'), signupDocument('alice')));
+  await assertFails(setDoc(doc(anonymousDatabase(), 'users', 'guest'), signupDocument('guest')));
+});
+
+test('users read and update their own profiles but cannot change identity fields', async () => {
+  const ref = doc(database('alice'), 'users', 'alice');
+  await setDoc(ref, signupDocument('alice'));
+  await assertSucceeds(updateDoc(ref, {
+    displayName: 'Updated Seller', photoURL: 'https://example.test/avatar.jpg',
+    location: 'Groves', bio: 'Local seller', updatedAt: Timestamp.now(),
+  }));
+  assert.equal((await getDoc(ref)).data().displayName, 'Updated Seller');
+  for (const patch of [{ id: 'bob' }, { email: 'changed@example.test' }, { createdAt: Timestamp.now() }]) {
+    await assertFails(updateDoc(ref, patch));
+  }
+});
+
+test('private profiles reject anonymous and other-user reads, queries, updates and deletion', async () => {
+  await seed('users/alice', signupDocument('alice'));
+  for (const db of [anonymousDatabase(), database('bob')]) {
+    const ref = doc(db, 'users', 'alice');
+    await assertFails(getDoc(ref));
+    await assertFails(getDocs(collection(db, 'users')));
+    await assertFails(updateDoc(ref, { bio: 'Tampered' }));
+    await assertFails(deleteDoc(ref));
+  }
+});
+
+test('ItemForm create payload supports public document and collection browsing', async () => {
+  const ref = doc(database('alice'), 'items', 'chair');
+  await assertSucceeds(setDoc(ref, itemDocument('alice')));
+  assert.equal((await getDoc(doc(anonymousDatabase(), 'items', 'chair'))).data().originalPrice, null);
+  const result = await assertSucceeds(getDocs(query(
+    collection(anonymousDatabase(), 'items'), where('isSold', '==', false),
+  )));
+  assert.equal(result.size, 1);
+});
+
+test('item edits remove optional taxonomy without losing ownership or sale association', async () => {
+  const ref = doc(database('alice'), 'items', 'chair');
+  await setDoc(ref, itemDocument('alice', { itemType: 'legacy-type', yardSaleId: 'sale' }));
+  await assertSucceeds(updateDoc(ref, {
+    title: 'Updated chair', description: 'Updated description',
+    category: 'Other', subcategory: deleteField(), itemType: deleteField(),
+    price: 20, originalPrice: null, condition: 'fair', location: 'Groves',
+    photoURLs: [], updatedAt: Timestamp.now(),
+  }));
+  const data = (await getDoc(ref)).data();
+  assert.equal('subcategory' in data, false);
+  assert.equal('itemType' in data, false);
+  assert.equal(data.userId, 'alice');
+  assert.equal(data.yardSaleId, 'sale');
+  await assertSucceeds(deleteDoc(ref));
+});
+
+test('item rules reject forged creation, unauthorized edits/deletion and ownership changes', async () => {
+  await seed('items/chair', itemDocument('alice'));
+  await assertFails(setDoc(doc(database('bob'), 'items', 'forged'), itemDocument('alice')));
+  await assertFails(setDoc(doc(anonymousDatabase(), 'items', 'guest'), itemDocument('guest')));
+  for (const db of [anonymousDatabase(), database('bob')]) {
+    await assertFails(updateDoc(doc(db, 'items', 'chair'), { price: 0 }));
+    await assertFails(deleteDoc(doc(db, 'items', 'chair')));
+  }
+  await assertFails(updateDoc(doc(database('alice'), 'items', 'chair'), { userId: 'bob' }));
+});
+
+test('sender creates an application message and both participants can read and query it', async () => {
+  const ref = doc(database('alice'), 'messages', 'hello');
+  await assertSucceeds(setDoc(ref, messageDocument()));
+  for (const [uid, field] of [['alice', 'senderId'], ['bob', 'recipientId']]) {
+    const db = database(uid);
+    await assertSucceeds(getDoc(doc(db, 'messages', 'hello')));
+    const result = await assertSucceeds(getDocs(query(
+      collection(db, 'messages'), where(field, '==', uid),
+    )));
+    assert.equal(result.size, 1);
+  }
+  await assertSucceeds(getDocs(query(
+    collection(database('alice'), 'messages'),
+    where('senderId', '==', 'alice'), where('recipientId', '==', 'bob'),
+    orderBy('createdAt', 'asc'),
+  )));
+});
+
+test('messages reject forged senders, unrelated reads/queries and content modification', async () => {
+  await seed('messages/hello', messageDocument());
+  await assertFails(setDoc(doc(database('bob'), 'messages', 'forged'), messageDocument()));
+  await assertFails(setDoc(doc(anonymousDatabase(), 'messages', 'guest'), messageDocument()));
+  for (const db of [anonymousDatabase(), database('charlie')]) {
+    await assertFails(getDoc(doc(db, 'messages', 'hello')));
+    await assertFails(getDocs(collection(db, 'messages')));
+    await assertFails(updateDoc(doc(db, 'messages', 'hello'), { read: true }));
+  }
+  for (const uid of ['alice', 'bob', 'charlie']) {
+    const ref = doc(database(uid), 'messages', 'hello');
+    await assertFails(updateDoc(ref, { text: 'Changed' }));
+    await assertFails(updateDoc(ref, { senderId: uid }));
+    await assertFails(updateDoc(ref, { recipientId: 'charlie' }));
+    await assertFails(deleteDoc(ref));
+  }
+  await assertFails(updateDoc(doc(database('alice'), 'messages', 'hello'), { read: true }));
+  const recipientRef = doc(database('bob'), 'messages', 'hello');
+  await assertSucceeds(updateDoc(recipientRef, { read: true }));
+  await assertFails(updateDoc(recipientRef, { read: false }));
+});
+
+test('legacy user and item fields can block otherwise legitimate owner updates', async () => {
+  const { bio, ...incompleteUser } = signupDocument('alice');
+  assert.equal(bio, '');
+  await seed('users/alice', incompleteUser);
+  await assertFails(updateDoc(doc(database('alice'), 'users', 'alice'), { displayName: 'Updated' }));
+  await assertSucceeds(updateDoc(doc(database('alice'), 'users', 'alice'), { bio: '' }));
+
+  const { views, ...incompleteItem } = itemDocument('alice');
+  assert.equal(views, 0);
+  await seed('items/missing-views', incompleteItem);
+  await assertFails(updateDoc(doc(database('alice'), 'items', 'missing-views'), { title: 'Updated' }));
+  await seed('items/extra-field', itemDocument('alice', { legacyMetadata: true }));
+  await assertFails(updateDoc(doc(database('alice'), 'items', 'extra-field'), { title: 'Updated' }));
+  await seed('items/legacy-category', itemDocument('alice', { category: 'Historical category' }));
+  await assertSucceeds(updateDoc(doc(database('alice'), 'items', 'legacy-category'), { title: 'Updated' }));
+});
+
+test('legacy messages remain participant-readable but missing read state blocks acknowledgement', async () => {
+  const { read, ...legacyMessage } = messageDocument();
+  assert.equal(read, false);
+  await seed('messages/legacy-message', { ...legacyMessage, legacyMetadata: true });
+  const ref = doc(database('bob'), 'messages', 'legacy-message');
+  await assertSucceeds(getDoc(ref));
+  await assertFails(updateDoc(ref, { read: true }));
+  await seed('messages/legacy-with-read', { ...messageDocument(), legacyMetadata: true });
+  await assertSucceeds(updateDoc(doc(database('bob'), 'messages', 'legacy-with-read'), { read: true }));
+});
+
+test('exact private records cannot be deleted independently or by another user', async () => {
+  const db = database('alice');
+  const eventRef = doc(db, 'yardSaleEvents', 'exact-delete');
+  const privateRef = doc(db, 'eventPrivate', 'exact-delete');
+  const batch = writeBatch(db);
+  batch.set(eventRef, publicEvent('alice', { locationVisibility: 'exact', address: '12 Main Street' }));
+  batch.set(privateRef, { userId: 'alice', address: '12 Main Street' });
+  await assertSucceeds(batch.commit());
+  await assertFails(deleteDoc(privateRef));
+  await assertFails(deleteDoc(doc(database('bob'), 'eventPrivate', 'exact-delete')));
+  await assertFails(deleteDoc(doc(anonymousDatabase(), 'eventPrivate', 'exact-delete')));
+  await assertFails(updateDoc(privateRef, { address: '99 Other Street' }));
+  await assertFails(updateDoc(eventRef, { locationVisibility: 'general' }));
+  assert.equal((await getDoc(privateRef)).exists(), true);
+
+  const change = writeBatch(db);
+  change.update(eventRef, {
+    locationVisibility: 'general', address: deleteField(),
+    latitude: deleteField(), longitude: deleteField(), updatedAt: Timestamp.now(),
+  });
+  change.delete(privateRef);
+  await assertSucceeds(change.commit());
+  assert.equal((await getDoc(privateRef)).exists(), false);
+  assert.equal((await getDoc(eventRef)).data().locationVisibility, 'general');
+});
+
+test('private records can be deleted with their public event in one batch', async () => {
+  const db = database('alice');
+  const eventRef = doc(db, 'yardSaleEvents', 'delete-both');
+  const privateRef = doc(db, 'eventPrivate', 'delete-both');
+  const create = writeBatch(db);
+  create.set(eventRef, publicEvent('alice', { locationVisibility: 'exact', address: '12 Main Street' }));
+  create.set(privateRef, { userId: 'alice', address: '12 Main Street' });
+  await assertSucceeds(create.commit());
+  const remove = writeBatch(db);
+  remove.delete(eventRef);
+  remove.delete(privateRef);
+  await assertSucceeds(remove.commit());
 });
 
 function database(uid) {

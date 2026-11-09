@@ -265,7 +265,20 @@ service cloud.firestore {
         && validPrivateEvent(eventId, request.resource.data);
 
       allow delete: if signedIn()
-        && resource.data.userId == request.auth.uid;
+        && resource.data.userId == request.auth.uid
+        && (
+          !existsAfter(
+            /databases/$(database)/documents/yardSaleEvents/$(eventId)
+          )
+          || (
+            getAfter(
+              /databases/$(database)/documents/yardSaleEvents/$(eventId)
+            ).data.userId == request.auth.uid
+            && getAfter(
+              /databases/$(database)/documents/yardSaleEvents/$(eventId)
+            ).data.locationVisibility == 'general'
+          )
+        );
     }
 
     match /messages/{messageId} {
