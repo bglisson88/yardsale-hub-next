@@ -1,0 +1,295 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function owns(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function validUser(uid, data) {
+      return data.keys().hasAll([
+          'id', 'email', 'displayName', 'photoURL', 'location', 'bio',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'email', 'displayName', 'photoURL', 'location', 'bio',
+          'createdAt', 'updatedAt'
+        ])
+        && data.id == uid
+        && data.email is string
+        && data.displayName is string
+        && (data.photoURL == null || data.photoURL is string)
+        && data.location is string
+        && data.bio is string
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function validItem(data) {
+      return data.keys().hasAll([
+          'userId', 'title', 'description', 'category', 'price', 'condition',
+          'location', 'photoURLs', 'createdAt', 'updatedAt', 'views', 'isSold'
+        ])
+        && data.keys().hasOnly([
+          'userId', 'yardSaleId', 'title', 'description', 'category',
+          'subcategory', 'itemType', 'price', 'originalPrice', 'condition',
+          'location', 'photoURLs', 'createdAt', 'updatedAt', 'views', 'isSold'
+        ])
+        && data.userId is string
+        && data.title is string
+        && data.title.size() > 0
+        && data.title.size() <= 120
+        && data.description is string
+        && data.description.size() <= 5000
+        && data.category is string
+        && data.price is number
+        && data.price >= 0
+        && (!data.keys().hasAny(['originalPrice'])
+            || data.originalPrice == null
+            || (data.originalPrice is number && data.originalPrice >= 0))
+        && data.condition in ['new', 'like-new', 'good', 'fair', 'poor']
+        && data.location is string
+        && data.photoURLs is list
+        && data.photoURLs.size() <= 5
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && data.views is int
+        && data.views >= 0
+        && data.isSold is bool
+        && (!data.keys().hasAny(['yardSaleId']) || data.yardSaleId is string)
+        && (!data.keys().hasAny(['subcategory']) || data.subcategory is string)
+        && (!data.keys().hasAny(['itemType']) || data.itemType is string);
+    }
+
+    function validEvent(data) {
+      return data.keys().hasAll([
+          'userId', 'title', 'description', 'location', 'locationVisibility',
+          'startDate', 'endDate', 'photoURL', 'createdAt', 'updatedAt',
+          'itemCount'
+        ])
+        && data.keys().hasOnly([
+          'userId', 'title', 'description', 'location', 'locationVisibility',
+          'address', 'startDate', 'endDate', 'photoURL', 'createdAt',
+          'updatedAt', 'itemCount'
+        ])
+        && data.userId is string
+        && data.title is string
+        && data.title.size() > 0
+        && data.title.size() <= 120
+        && data.description is string
+        && data.description.size() <= 5000
+        && data.location is string
+        && data.location.size() > 0
+        && data.locationVisibility in ['general', 'exact']
+        && data.startDate is timestamp
+        && data.endDate is timestamp
+        && data.endDate > data.startDate
+        && (data.photoURL == null || data.photoURL is string)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && data.itemCount is int
+        && data.itemCount >= 0
+        && (
+          (data.locationVisibility == 'general'
+            && !data.keys().hasAny(['address']))
+          ||
+          (data.locationVisibility == 'exact'
+            && data.keys().hasAny(['address'])
+            && data.address is string
+            && data.address.size() > 0
+            && data.address.size() <= 300)
+        );
+    }
+
+    function validPrivateEvent(eventId, data) {
+      let publicEvent = getAfter(
+        /databases/$(database)/documents/yardSaleEvents/$(eventId)
+      ).data;
+      return data.keys().hasAll(['userId', 'address'])
+        && data.keys().hasOnly(['userId', 'address'])
+        && data.userId == request.auth.uid
+        && data.address is string
+        && data.address.size() > 0
+        && data.address.size() <= 300
+        && publicEvent.userId == request.auth.uid
+        && (
+          publicEvent.locationVisibility == 'general'
+          || (
+            publicEvent.locationVisibility == 'exact'
+            && publicEvent.address == data.address
+          )
+        );
+    }
+
+    function validMessage(data) {
+      return data.keys().hasAll([
+          'senderId', 'recipientId', 'text', 'createdAt', 'read'
+        ])
+        && data.keys().hasOnly([
+          'senderId', 'recipientId', 'itemId', 'text', 'createdAt', 'read'
+        ])
+        && data.senderId is string
+        && data.recipientId is string
+        && data.senderId != data.recipientId
+        && data.text is string
+        && data.text.size() > 0
+        && data.text.size() <= 5000
+        && data.createdAt is timestamp
+        && data.read is bool
+        && (!data.keys().hasAny(['itemId']) || data.itemId is string);
+    }
+
+    match /users/{uid} {
+      allow get: if owns(uid);
+      allow list: if false;
+
+      allow create: if owns(uid) && validUser(uid, request.resource.data);
+
+      allow update: if owns(uid)
+        && validUser(uid, request.resource.data)
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['displayName', 'photoURL', 'location', 'bio', 'updatedAt']);
+
+      allow delete: if false;
+    }
+
+    match /items/{itemId} {
+      allow read: if true;
+
+      allow create: if signedIn()
+        && validItem(request.resource.data)
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.views == 0
+        && request.resource.data.isSold == false;
+
+      allow update: if signedIn()
+        && resource.data.userId == request.auth.uid
+        && validItem(request.resource.data)
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.views == resource.data.views
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'title', 'description', 'category', 'subcategory', 'itemType',
+          'price', 'originalPrice', 'condition', 'location', 'photoURLs',
+          'updatedAt'
+        ]);
+
+      allow delete: if signedIn()
+        && resource.data.userId == request.auth.uid;
+    }
+
+    match /yardSaleEvents/{eventId} {
+      // Older records without locationVisibility must be migrated before
+      // public queries are enabled. Firestore cannot use per-document rule
+      // checks as a query filter, so public listing reads require migration
+      // to remove private fields from every document first.
+      allow get: if validEvent(resource.data)
+        || owns(resource.data.userId);
+      allow list: if true;
+
+      allow create: if signedIn()
+        && validEvent(request.resource.data)
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.itemCount == 0
+        && (
+          request.resource.data.locationVisibility == 'general'
+          || (
+            request.resource.data.locationVisibility == 'exact'
+            && existsAfter(
+              /databases/$(database)/documents/eventPrivate/$(eventId)
+            )
+            && getAfter(
+              /databases/$(database)/documents/eventPrivate/$(eventId)
+            ).data.address == request.resource.data.address
+            && getAfter(
+              /databases/$(database)/documents/eventPrivate/$(eventId)
+            ).data.userId == request.auth.uid
+          )
+        );
+
+      allow update: if signedIn()
+        && resource.data.userId == request.auth.uid
+        && validEvent(request.resource.data)
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.itemCount == resource.data.itemCount
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'title', 'description', 'location', 'locationVisibility', 'address',
+          'latitude', 'longitude', 'startDate', 'endDate', 'photoURL',
+          'updatedAt'
+        ])
+        && (
+          request.resource.data.locationVisibility == 'general'
+          || (
+            existsAfter(
+              /databases/$(database)/documents/eventPrivate/$(eventId)
+            )
+            && getAfter(
+              /databases/$(database)/documents/eventPrivate/$(eventId)
+            ).data.address == request.resource.data.address
+            && getAfter(
+              /databases/$(database)/documents/eventPrivate/$(eventId)
+            ).data.userId == request.auth.uid
+          )
+        );
+
+      allow delete: if signedIn()
+        && resource.data.userId == request.auth.uid;
+    }
+
+    match /eventPrivate/{eventId} {
+      allow get: if signedIn()
+        && (
+          (resource == null
+            && get(
+              /databases/$(database)/documents/yardSaleEvents/$(eventId)
+            ).data.userId == request.auth.uid)
+          || (
+            resource != null
+            && resource.data.userId == request.auth.uid
+          )
+        );
+      allow list: if false;
+
+      allow create: if signedIn()
+        && validPrivateEvent(eventId, request.resource.data);
+
+      allow update: if signedIn()
+        && resource.data.userId == request.auth.uid
+        && validPrivateEvent(eventId, request.resource.data);
+
+      allow delete: if signedIn()
+        && resource.data.userId == request.auth.uid;
+    }
+
+    match /messages/{messageId} {
+      allow read: if signedIn()
+        && (resource.data.senderId == request.auth.uid
+            || resource.data.recipientId == request.auth.uid);
+
+      allow create: if signedIn()
+        && validMessage(request.resource.data)
+        && request.resource.data.senderId == request.auth.uid
+        && request.resource.data.read == false;
+
+      allow update: if signedIn()
+        && resource.data.recipientId == request.auth.uid
+        && resource.data.read == false
+        && request.resource.data.read == true
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['read']);
+
+      allow delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

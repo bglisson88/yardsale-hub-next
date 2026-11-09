@@ -138,6 +138,20 @@ listing selectors, validation, and readable labels use this source.
   item taxonomy's fifteenth category. This baseline has no GPS/radius discovery;
   item location filters match the stored city/ZIP text (case-insensitive).
 
+## Event location privacy
+
+New sale events default to a broad public location. Organizers may explicitly
+confirm publishing an exact street address; any supplied address is also stored
+in the owner-only `eventPrivate/{eventId}` document. Exact coordinates are not
+collected or published by the current UI. Event creation and edits update the
+public and private records atomically.
+
+The Firestore rules are in `firestore.rules`. Existing event documents must be
+migrated before those rules are deployed; see
+[`EVENT_LOCATION_PRIVACY_MIGRATION.md`](./EVENT_LOCATION_PRIVACY_MIGRATION.md).
+The new event flow is not production-ready until the rules are reviewed and
+deployed in coordination with that migration.
+
 ### Prior menu work and scope
 
 This work starts from current `main`, not `copilot/fix-dashboard-counts`.

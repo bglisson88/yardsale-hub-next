@@ -15,9 +15,8 @@ export interface YardSaleEvent {
   title: string;
   description: string;
   location: string;
-  address: string;
-  latitude: number;
-  longitude: number;
+  locationVisibility: 'general' | 'exact';
+  address?: string;
   startDate: Date;
   endDate: Date;
   photoURL: string | null;
