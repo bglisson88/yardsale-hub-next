@@ -99,6 +99,13 @@ test('general event can retain a private address in an atomic batch', async () =
   assert.equal((await getDoc(privateRef)).data().address, '12 Main Street');
   await assertFails(getDoc(doc(database('bob'), 'eventPrivate', eventRef.id)));
   await assertFails(getDoc(doc(anonymousDatabase(), 'eventPrivate', eventRef.id)));
+  await assertFails(setDoc(
+    doc(database('bob'), 'eventPrivate', eventRef.id),
+    { userId: 'alice', address: 'Changed Address' },
+  ));
+  await assertFails(updateDoc(doc(database('bob'), 'eventPrivate', eventRef.id), {
+    address: 'Changed Address',
+  }));
 });
 
 test('exact event and private address must be written atomically and consistently', async () => {
@@ -113,7 +120,8 @@ test('exact event and private address must be written atomically and consistentl
   batch.set(privateRef, { userId: 'alice', address: '12 Main Street' });
   await assertSucceeds(batch.commit());
 
-  await assertSucceeds(getDoc(doc(anonymousDatabase(), 'yardSaleEvents', eventRef.id)));
+  const publicSnapshot = await getDoc(doc(anonymousDatabase(), 'yardSaleEvents', eventRef.id));
+  assert.equal(publicSnapshot.data().address, '12 Main Street');
   await assertFails(getDoc(doc(database('bob'), 'eventPrivate', eventRef.id)));
 
   const mismatchedRef = doc(collection(alice, 'yardSaleEvents'));
@@ -171,19 +179,24 @@ test('changing exact visibility to general removes published address atomically'
   const alice = database('alice');
   const eventRef = doc(alice, 'yardSaleEvents', 'visibility-change');
   const privateRef = doc(alice, 'eventPrivate', 'visibility-change');
-  const create = writeBatch(alice);
-  create.set(eventRef, publicEvent('alice', {
+  await seed('yardSaleEvents/visibility-change', publicEvent('alice', {
     locationVisibility: 'exact',
     address: '12 Main Street',
+    latitude: 29.99,
+    longitude: -94.01,
   }));
-  create.set(privateRef, { userId: 'alice', address: '12 Main Street' });
-  await assertSucceeds(create.commit());
+  await seed('eventPrivate/visibility-change', {
+    userId: 'alice',
+    address: '12 Main Street',
+  });
 
   const change = writeBatch(alice);
   change.update(eventRef, {
     locationVisibility: 'general',
     updatedAt: Timestamp.now(),
     address: deleteField(),
+    latitude: deleteField(),
+    longitude: deleteField(),
   });
   await assertSucceeds(change.commit());
 
@@ -215,11 +228,22 @@ test('invalid event time ranges are rejected by rules', async () => {
   ));
 });
 
-test('legacy events without a visibility classification fail closed on public reads', async () => {
+test('legacy private fields remain visible in public queries until migration', async () => {
   await seed('yardSaleEvents/legacy', {
-    ...publicEvent('alice'),
+    ...publicEvent('alice', {
+      locationVisibility: 'exact',
+      latitude: 29.99,
+      longitude: -94.01,
+    }),
     address: '12 Main Street',
   });
   await assertFails(getDoc(doc(anonymousDatabase(), 'yardSaleEvents', 'legacy')));
   await assertSucceeds(getDoc(doc(database('alice'), 'yardSaleEvents', 'legacy')));
+
+  const publicQuery = await getDocs(collection(anonymousDatabase(), 'yardSaleEvents'));
+  const legacyDocument = publicQuery.docs.find(snapshot => snapshot.id === 'legacy');
+  assert.ok(legacyDocument);
+  assert.equal(legacyDocument.data().address, '12 Main Street');
+  assert.equal(legacyDocument.data().latitude, 29.99);
+  assert.equal(legacyDocument.data().longitude, -94.01);
 });

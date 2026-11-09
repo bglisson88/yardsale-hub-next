@@ -107,7 +107,14 @@ npm run type-check
 
 # Taxonomy and discovery regression tests (Node's built-in test runner)
 npm test
+
+# Firestore security rules tests (Firebase Emulator; requires Java)
+npm run test:rules
 ```
+
+GitHub Actions runs all four checks and builds without remote font downloads.
+The brand typography uses an Avenir/Segoe UI/system font stack, so production
+builds do not depend on Google Fonts availability.
 
 ## Categories and discovery
 
