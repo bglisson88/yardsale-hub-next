@@ -29,7 +29,7 @@ before(async () => {
 });
 
 beforeEach(async () => {
-  await environment.clearStorage();
+  await clearStorage();
 });
 
 after(async () => {
@@ -46,6 +46,38 @@ function storage(uid) {
 function upload(bucket, path, bytes = IMAGE, contentType = 'image/png') {
   return uploadBytes(ref(bucket, path), bytes, { contentType });
 }
+
+async function clearStorage() {
+  // rules-unit-testing 3.x clearStorage() does not traverse folder prefixes.
+  await environment.withSecurityRulesDisabled(async context => {
+    async function clearDirectory(directory) {
+      const { items, prefixes } = await listAll(directory);
+      await Promise.all(items.map(item => deleteObject(item)));
+      await Promise.all(prefixes.map(prefix => clearDirectory(prefix)));
+    }
+
+    await clearDirectory(ref(context.storage()));
+  });
+}
+
+test('cleanup removes root and nested objects so owner paths can be reused between tests', async () => {
+  const paths = ['root.png', 'items/alice/photo.png', 'events/alice/photo.png',
+    'items/alice/nested/photo.png', 'private/alice/photo.png'];
+  await environment.withSecurityRulesDisabled(async context => {
+    for (const path of paths) await upload(context.storage(), path);
+  });
+
+  await clearStorage();
+
+  await environment.withSecurityRulesDisabled(async context => {
+    const remaining = await listAll(ref(context.storage()));
+    assert.equal(remaining.items.length, 0);
+    assert.equal(remaining.prefixes.length, 0);
+  });
+  for (const collection of ['items', 'events']) {
+    await assertSucceeds(upload(storage('alice'), `${collection}/alice/photo.png`));
+  }
+});
 
 for (const collection of ['items', 'events']) {
   test(`${collection}: owner can upload at the application's flat user path`, async () => {
@@ -73,6 +105,8 @@ for (const collection of ['items', 'events']) {
     await assertFails(deleteObject(ref(storage(), path)));
     await assertFails(deleteObject(ref(storage('bob'), path)));
     await assertSucceeds(deleteObject(ref(storage('alice'), path)));
+    await assertSucceeds(upload(storage('alice'), path));
+    await assertFails(upload(storage('alice'), path));
   });
 
   test(`${collection}: allows JPEG, PNG, GIF, and WebP; rejects other types`, async () => {
