@@ -16,14 +16,14 @@ service firebase.storage {
     // Application uploads are flat: items/{userId}/{timestamp}_{filename}.
     match /items/{userId}/{fileName} {
       allow get: if true;
-      allow create: if owns(userId) && validImage();
+      allow create: if resource == null && owns(userId) && validImage();
       allow delete: if owns(userId);
     }
 
     // Application uploads are flat: events/{userId}/{timestamp}_{filename}.
     match /events/{userId}/{fileName} {
       allow get: if true;
-      allow create: if owns(userId) && validImage();
+      allow create: if resource == null && owns(userId) && validImage();
       allow delete: if owns(userId);
     }
   }

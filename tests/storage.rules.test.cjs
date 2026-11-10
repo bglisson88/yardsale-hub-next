@@ -112,16 +112,49 @@ for (const collection of ['items', 'events']) {
     ));
   });
 
-  test(`${collection}: rejects overwrites and metadata changes`, async () => {
+  test(`${collection}: rejects identical and changed-content overwrites`, async () => {
     const path = `${collection}/alice/photo.png`;
     await upload(storage('alice'), path);
+    const originalMetadata = await getMetadata(ref(storage('alice'), path));
 
-    await assertFails(upload(storage('alice'), path));
-    await assertFails(upload(storage('bob'), path));
-    await assertFails(updateMetadata(ref(storage('alice'), path), {
-      customMetadata: { changed: 'yes' },
-    }));
-    await assertSucceeds(getBytes(ref(storage('alice'), path)));
+    for (const uid of ['alice', 'bob', undefined]) {
+      await assertFails(upload(storage(uid), path));
+      await assertFails(upload(storage(uid), path, new Uint8Array([1, 2, 3])));
+      await assertFails(uploadBytes(ref(storage(uid), path), IMAGE, {
+        contentType: 'image/png',
+        customMetadata: { changed: 'yes' },
+      }));
+    }
+
+    assert.deepEqual(new Uint8Array(await getBytes(ref(storage(), path))), IMAGE);
+    const metadata = await getMetadata(ref(storage(), path));
+    assert.equal(metadata.generation, originalMetadata.generation);
+    assert.equal(metadata.metageneration, originalMetadata.metageneration);
+    assert.deepEqual(metadata.customMetadata, originalMetadata.customMetadata);
+  });
+
+  test(`${collection}: rejects standalone metadata updates`, async () => {
+    const path = `${collection}/alice/photo.png`;
+    await uploadBytes(ref(storage('alice'), path), IMAGE, {
+      contentType: 'image/png',
+      customMetadata: { original: 'yes' },
+    });
+    const originalMetadata = await getMetadata(ref(storage('alice'), path));
+
+    for (const uid of ['alice', 'bob', undefined]) {
+      await assertFails(updateMetadata(ref(storage(uid), path), {
+        customMetadata: { changed: 'yes' },
+      }));
+      await assertFails(updateMetadata(ref(storage(uid), path), {
+        contentType: 'image/jpeg',
+      }));
+    }
+
+    const metadata = await getMetadata(ref(storage(), path));
+    assert.equal(metadata.contentType, originalMetadata.contentType);
+    assert.equal(metadata.metageneration, originalMetadata.metageneration);
+    assert.deepEqual(metadata.customMetadata, originalMetadata.customMetadata);
+    assert.deepEqual(new Uint8Array(await getBytes(ref(storage(), path))), IMAGE);
   });
 
   test(`${collection}: rejects recursive paths and objects outside its namespace`, async () => {
