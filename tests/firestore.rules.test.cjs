@@ -29,7 +29,7 @@ const createdAt = Timestamp.fromDate(new Date('2026-11-01T12:00:00Z'));
 
 before(async () => {
   environment = await initializeTestEnvironment({
-    projectId: 'yardsale-hub-event-privacy',
+    projectId: 'demo-yardsale-hub',
     firestore: { rules: fs.readFileSync('firestore.rules', 'utf8') },
   });
 });

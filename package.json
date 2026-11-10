@@ -9,7 +9,7 @@
     "lint": "next lint",
     "type-check": "tsc --noEmit",
     "test": "test_dir=$(mktemp -d) && tsc src/lib/categories.ts src/lib/discovery.ts src/lib/event-data.ts --module commonjs --target ES2020 --skipLibCheck --outDir \"$test_dir\" && CATEGORY_TEST_BUILD=\"$test_dir\" node --test tests/categories.test.cjs tests/category-navigation.test.cjs tests/category-taxonomy.test.cjs tests/discovery.test.cjs tests/event-data.test.cjs tests/restoration.test.cjs tests/selectors.test.cjs; result=$?; if [ -n \"$test_dir\" ]; then rm -rf \"$test_dir\"; fi; exit $result",
-    "test:rules": "firebase emulators:exec --only firestore \"node --test tests/firestore.rules.test.cjs\""
+    "test:rules": "firebase emulators:exec --project demo-yardsale-hub --only firestore,storage \"node --test tests/firestore.rules.test.cjs tests/storage.rules.test.cjs\""
   },
   "dependencies": {
     "autoprefixer": "^10.4.16",
