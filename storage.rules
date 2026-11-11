@@ -13,6 +13,15 @@ service firebase.storage {
         ];
     }
 
+    // Preserve the production avatar policy, including nested paths and replacement.
+    // Unlike listing photos, avatars have no additional MIME-type restriction.
+    match /avatars/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow create, update: if owns(userId)
+        && request.resource.size <= 1024 * 1024;
+      allow delete: if owns(userId);
+    }
+
     // Application uploads are flat: items/{userId}/{timestamp}_{filename}.
     match /items/{userId}/{fileName} {
       allow get: if true;

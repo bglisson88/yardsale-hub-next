@@ -19,6 +19,7 @@ const {
 const PROJECT_ID = 'demo-yardsale-hub';
 const IMAGE = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+const MAX_AVATAR_SIZE = 1024 * 1024;
 let environment;
 
 before(async () => {
@@ -46,6 +47,92 @@ function storage(uid) {
 function upload(bucket, path, bytes = IMAGE, contentType = 'image/png') {
   return uploadBytes(ref(bucket, path), bytes, { contentType });
 }
+
+// Representative flat and nested legacy layouts; the profile uploader is not
+// present in this checkout, so its exact production filenames are unverified.
+const avatarPaths = [
+  'avatars/alice/avatar.jpg',
+  'avatars/alice/1799999999999_profile.png',
+  'avatars/alice/profile/original/avatar.webp',
+];
+
+test('avatars: flat and nested legacy paths support owner uploads and public reads', async () => {
+  for (const path of avatarPaths) {
+    await assertSucceeds(upload(storage('alice'), path));
+    assert.deepEqual(new Uint8Array(await assertSucceeds(getBytes(ref(storage(), path)))), IMAGE);
+    await assertSucceeds(getMetadata(ref(storage('bob'), path)));
+  }
+});
+
+test('avatars: owner can replace, update metadata, and delete their own avatars', async () => {
+  const replacement = new Uint8Array([1, 2, 3]);
+  for (const path of avatarPaths) {
+    const object = ref(storage('alice'), path);
+    await upload(storage('alice'), path);
+    await assertSucceeds(upload(storage('alice'), path, replacement, 'image/jpeg'));
+    await assertSucceeds(updateMetadata(object, { customMetadata: { profile: 'updated' } }));
+    assert.deepEqual(new Uint8Array(await getBytes(ref(storage(), path))), replacement);
+    assert.equal((await getMetadata(object)).customMetadata.profile, 'updated');
+    await assertSucceeds(deleteObject(object));
+    await assert.rejects(getBytes(ref(storage(), path)), { code: 'storage/object-not-found' });
+  }
+});
+
+test('avatars: anonymous users and other owners cannot create, replace, modify or delete', async () => {
+  for (const path of avatarPaths) {
+    for (const uid of [undefined, 'bob']) {
+      await assertFails(upload(storage(uid), path));
+    }
+    await upload(storage('alice'), path);
+    const before = await getMetadata(ref(storage('alice'), path));
+    for (const uid of [undefined, 'bob']) {
+      await assertFails(upload(storage(uid), path, new Uint8Array([1, 2, 3])));
+      await assertFails(updateMetadata(ref(storage(uid), path), {
+        customMetadata: { changed: 'yes' },
+      }));
+      await assertFails(deleteObject(ref(storage(uid), path)));
+    }
+    const after = await getMetadata(ref(storage(), path));
+    assert.equal(after.generation, before.generation);
+    assert.equal(after.metageneration, before.metageneration);
+    assert.deepEqual(new Uint8Array(await getBytes(ref(storage(), path))), IMAGE);
+  }
+});
+
+test('avatars: 1 MiB is allowed, but larger creates and replacements are denied', async () => {
+  for (const path of avatarPaths) {
+    await assertFails(upload(storage('alice'), path, new Uint8Array(MAX_AVATAR_SIZE + 1)));
+    await assertSucceeds(upload(storage('alice'), path, new Uint8Array(MAX_AVATAR_SIZE)));
+    const before = await getMetadata(ref(storage('alice'), path));
+    await assertFails(upload(storage('alice'), path, new Uint8Array(MAX_AVATAR_SIZE + 1)));
+    const after = await getMetadata(ref(storage(), path));
+    assert.equal(after.size, MAX_AVATAR_SIZE);
+    assert.equal(after.generation, before.generation);
+  }
+});
+
+test('avatars: the compatibility policy does not introduce new MIME restrictions', async () => {
+  for (const [index, type] of [
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/svg+xml',
+  ].entries()) {
+    await assertSucceeds(upload(storage('alice'), `avatars/alice/format-${index}`, IMAGE, type));
+  }
+});
+
+test('avatars: recursive permissions do not extend to other namespaces or owner prefixes', async () => {
+  for (const path of [
+    'avatar/alice/photo.png', 'private/alice/photo.png',
+    'items/alice/profile/photo.png', 'events/alice/profile/photo.png',
+  ]) {
+    await assertFails(upload(storage('alice'), path));
+    await environment.withSecurityRulesDisabled(async context => {
+      await upload(context.storage(), path);
+    });
+    await assertFails(getBytes(ref(storage(), path)));
+    await assertFails(deleteObject(ref(storage('alice'), path)));
+  }
+  await assertFails(upload(storage('alice'), 'avatars/alice-other/profile/photo.png'));
+});
 
 async function clearStorage() {
   // rules-unit-testing 3.x clearStorage() does not traverse folder prefixes.
