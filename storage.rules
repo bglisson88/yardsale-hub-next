@@ -13,6 +13,26 @@ service firebase.storage {
         ];
     }
 
+    function reservation(photoId) {
+      return firestore.get(/databases/(default)/documents/photoReservations/$(photoId)).data;
+    }
+
+    match /recordPhotos/{kind}/{userId}/{recordId}/{photoId} {
+      allow create: if owns(userId) && resource == null && validImage()
+        && kind in ['items', 'events']
+        && reservation(photoId).ownerUid == userId
+        && reservation(photoId).kind == kind
+        && reservation(photoId).recordId == recordId
+        && reservation(photoId).path == 'recordPhotos/' + kind + '/' + userId + '/' + recordId + '/' + photoId
+        && reservation(photoId).state == 'reserved'
+        && request.time.toMillis() < reservation(photoId).expiresAt;
+      allow get: if reservation(photoId).ownerUid == userId
+        && reservation(photoId).kind == kind
+        && reservation(photoId).recordId == recordId
+        && reservation(photoId).state == 'attached';
+      // Only the trusted lifecycle worker can delete; listing and updates are denied.
+    }
+
     // Application uploads are flat: items/{userId}/{timestamp}_{filename}.
     match /items/{userId}/{fileName} {
       allow get: if true;

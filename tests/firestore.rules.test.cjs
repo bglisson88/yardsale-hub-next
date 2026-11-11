@@ -260,10 +260,25 @@ test('private records can be deleted with their public event in one batch', asyn
   create.set(eventRef, publicEvent('alice', { locationVisibility: 'exact', address: '12 Main Street' }));
   create.set(privateRef, { userId: 'alice', address: '12 Main Street' });
   await assertSucceeds(create.commit());
+  await assertFails(deleteDoc(eventRef));
+  assert.equal((await getDoc(eventRef)).exists(), true);
+  assert.equal((await getDoc(privateRef)).exists(), true);
   const remove = writeBatch(db);
   remove.delete(eventRef);
   remove.delete(privateRef);
   await assertSucceeds(remove.commit());
+  await environment.withSecurityRulesDisabled(async context => {
+    assert.equal((await getDoc(doc(context.firestore(), 'yardSaleEvents', 'delete-both'))).exists(), false);
+    assert.equal((await getDoc(doc(context.firestore(), 'eventPrivate', 'delete-both'))).exists(), false);
+  });
+});
+
+test('owner can delete an event without a private record', async () => {
+  const db = database('alice');
+  const eventRef = doc(db, 'yardSaleEvents', 'delete-without-private');
+  await assertSucceeds(setDoc(eventRef, publicEvent('alice')));
+  await assertFails(deleteDoc(doc(database('bob'), 'yardSaleEvents', 'delete-without-private')));
+  await assertSucceeds(deleteDoc(eventRef));
 });
 
 function database(uid) {
