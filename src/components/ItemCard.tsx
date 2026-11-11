@@ -8,7 +8,7 @@ import { categoryLabel } from '@/lib/categories';
 export function ItemCard({ item, appearance = 'light' }: { item: Item; appearance?: 'light' | 'dark' }) {
   const dark = appearance === 'dark';
   return (
-    <Link href={`/items?${new URLSearchParams({ search: item.title })}`} className={`group overflow-hidden rounded-2xl border transition-colors ${dark ? 'bg-slate-900 border-slate-800 hover:border-slate-600' : 'bg-white border-gray-200 hover:border-gray-400'}`}>
+    <Link href={`/items/${encodeURIComponent(item.id)}`} className={`group overflow-hidden rounded-2xl border transition-colors ${dark ? 'bg-slate-900 border-slate-800 hover:border-slate-600' : 'bg-white border-gray-200 hover:border-gray-400'}`}>
       <div className={`relative h-48 overflow-hidden ${dark ? 'bg-slate-800' : 'bg-gray-100'}`}>
         {item.photoURLs?.[0] ? (
           // eslint-disable-next-line @next/next/no-img-element

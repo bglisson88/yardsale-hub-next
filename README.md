@@ -231,6 +231,33 @@ Draft flag with the available tools; the maintainer must set it manually.
 
 ## Deployment
 
+### Item detail preview verification
+
+Listing cards open `/items/[id]`, which subscribes to the existing `items`
+document and displays its saved photos and public listing fields. Seller
+profiles are not fetched: the item model has no public seller name, so the page
+uses a generic member label and never displays profile email or address fields.
+Only the signed-in owner sees the existing Edit Listing link; the edit page and
+Firestore rules remain responsible for write authorization.
+
+Contact seller currently shows an unavailable notice. The existing inbox only
+loads outgoing messages, so initiating seller inquiries safely requires a
+separate messaging fix. This route does not write messages or change that inbox.
+
+Before testing a Vercel Preview of this branch, have the project administrator
+verify that **all six** existing `NEXT_PUBLIC_FIREBASE_*` variables target
+`yardsale-hub-staging` (including its Auth app and Storage bucket). The variables
+scoped to PR #31's branch do not automatically apply to this separate branch.
+Do not test a preview whose Firebase target is unverified.
+
+On the confirmed staging Preview, open an existing staging listing from both
+the homepage and browse page, refresh its detail URL, and verify all saved
+photos and fields on mobile and desktop. Sign in as its owner and follow
+Edit Listing; repeat as another user and signed out to confirm the link is
+absent. Check a nonexistent ID and a disconnected/blocked Firestore request
+for the not-found and retry states. Do not change production data or Firebase
+rules to run these checks.
+
 This project is configured for Vercel:
 
 1. Push code to GitHub

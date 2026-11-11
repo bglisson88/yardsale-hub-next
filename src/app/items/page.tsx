@@ -80,7 +80,7 @@ function BrowseResults({ params, items, loading }: {
               key={item.id}
               className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-lg transition"
             >
-              <Link href={`/items/${item.id}`}>
+              <Link href={`/items/${encodeURIComponent(item.id)}`}>
               <div className="relative h-40 bg-gray-100">
                 {item.photoURLs.length > 0 ? (
                   <Image
