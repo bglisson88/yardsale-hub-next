@@ -158,6 +158,36 @@ test('item rules reject forged creation, unauthorized edits/deletion and ownersh
   await assertFails(updateDoc(doc(database('alice'), 'items', 'chair'), { userId: 'bob' }));
 });
 
+test('item owners can mark sold and available while making permitted edits', async () => {
+  await seed('items/chair', itemDocument('alice'));
+  const ref = doc(database('alice'), 'items', 'chair');
+  await assertSucceeds(updateDoc(ref, { isSold: true, title: 'Sold chair' }));
+  let data = (await assertSucceeds(getDoc(ref))).data();
+  assert.equal(data.isSold, true);
+  assert.equal(data.title, 'Sold chair');
+  await assertSucceeds(updateDoc(ref, { isSold: false, price: 20 }));
+  data = (await assertSucceeds(getDoc(ref))).data();
+  assert.equal(data.isSold, false);
+  assert.equal(data.price, 20);
+});
+
+test('item sold updates reject invalid values, non-owners and protected field changes', async () => {
+  await seed('items/chair', itemDocument('alice', { yardSaleId: 'sale' }));
+  const ref = doc(database('alice'), 'items', 'chair');
+  for (const isSold of ['true', 1, null, deleteField()]) {
+    await assertFails(updateDoc(ref, { isSold }));
+  }
+  for (const db of [anonymousDatabase(), database('bob')]) {
+    await assertFails(updateDoc(doc(db, 'items', 'chair'), { isSold: true }));
+  }
+  for (const patch of [
+    { views: 1 }, { userId: 'bob' }, { createdAt: Timestamp.now() }, { yardSaleId: 'other' },
+  ]) {
+    await assertFails(updateDoc(ref, { isSold: true, ...patch }));
+  }
+  assert.equal((await getDoc(ref)).data().isSold, false);
+});
+
 test('favorites support owner creates, reads, scoped queries and deletes for all three types', async () => {
   const alice = database('alice');
   const refs = [];

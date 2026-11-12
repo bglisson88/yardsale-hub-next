@@ -177,7 +177,7 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'title', 'description', 'category', 'subcategory', 'itemType',
           'price', 'originalPrice', 'condition', 'location', 'photoURLs',
-          'updatedAt'
+          'updatedAt', 'isSold'
         ]);
 
       allow delete: if signedIn()
