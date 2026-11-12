@@ -202,6 +202,69 @@ test('favorites reject other users and anonymous reads, queries and deletes', as
   await assertFails(getDocs(collection(database('alice'), 'favorites')));
 });
 
+test('authenticated users can create and read reviews and query by seller', async () => {
+  const alice = database('alice');
+  const review = { reviewerId: 'alice', sellerId: 'seller', rating: 1, comment: 'x'.repeat(500) };
+  await assertSucceeds(setDoc(doc(alice, 'reviews', 'seller_alice'), review));
+  await assertSucceeds(setDoc(doc(database('bob'), 'reviews', 'seller_bob'), {
+    reviewerId: 'bob', sellerId: 'seller', rating: 5, comment: '',
+  }));
+  for (const uid of ['alice', 'seller', 'charlie']) {
+    const db = database(uid);
+    assert.deepEqual((await assertSucceeds(getDoc(doc(db, 'reviews', 'seller_alice')))).data(), review);
+    assert.equal((await assertSucceeds(getDocs(collection(db, 'reviews')))).size, 2);
+    assert.equal((await assertSucceeds(getDocs(query(
+      collection(db, 'reviews'), where('sellerId', '==', 'seller'),
+    )))).size, 2);
+  }
+  await assertFails(getDoc(doc(anonymousDatabase(), 'reviews', 'seller_alice')));
+  await assertFails(getDocs(collection(anonymousDatabase(), 'reviews')));
+  await assertFails(getDocs(query(
+    collection(anonymousDatabase(), 'reviews'), where('sellerId', '==', 'seller'),
+  )));
+});
+
+test('review creation rejects forged identities, self reviews, invalid content and document IDs', async () => {
+  const review = { reviewerId: 'alice', sellerId: 'seller', rating: 3, comment: 'Good' };
+  const alice = database('alice');
+  await assertFails(setDoc(doc(anonymousDatabase(), 'reviews', 'seller_alice'), review));
+  await assertFails(setDoc(doc(database('bob'), 'reviews', 'seller_alice'), review));
+  await assertFails(setDoc(doc(alice, 'reviews', 'alice_alice'), { ...review, sellerId: 'alice' }));
+  for (const rating of [0, 6]) {
+    await assertFails(setDoc(doc(alice, 'reviews', 'seller_alice'), { ...review, rating }));
+  }
+  await assertFails(setDoc(doc(alice, 'reviews', 'seller_alice'), { ...review, comment: 'x'.repeat(501) }));
+  await assertFails(setDoc(doc(alice, 'reviews', 'alice_seller'), review));
+  await assertFails(setDoc(doc(alice, 'reviews', 'seller_alice'), { reviewerId: 'alice', sellerId: 'seller' }));
+});
+
+test('reviewers can edit and delete reviews but cannot change either identity', async () => {
+  const review = { reviewerId: 'alice', sellerId: 'seller', rating: 3, comment: 'Good' };
+  await seed('reviews/seller_alice', review);
+  const ref = doc(database('alice'), 'reviews', 'seller_alice');
+  await assertSucceeds(updateDoc(ref, { rating: 4, comment: 'Updated' }));
+  await assertFails(updateDoc(ref, { reviewerId: 'bob' }));
+  await assertFails(updateDoc(ref, { sellerId: 'bob' }));
+  await assertFails(updateDoc(ref, { reviewerId: deleteField() }));
+  await assertFails(updateDoc(ref, { sellerId: deleteField() }));
+  await assertFails(setDoc(ref, { ...review, sellerId: 'bob' }));
+  for (const db of [anonymousDatabase(), database('bob'), database('seller')]) {
+    await assertFails(updateDoc(doc(db, 'reviews', 'seller_alice'), { rating: 5 }));
+    await assertFails(deleteDoc(doc(db, 'reviews', 'seller_alice')));
+  }
+  // Production does not revalidate rating or comment on update.
+  await assertSucceeds(updateDoc(ref, { rating: 6, comment: 'x'.repeat(501) }));
+  await assertSucceeds(deleteDoc(ref));
+});
+
+test('legacy reviews without sellerId can be edited without changing identity fields', async () => {
+  await seed('reviews/legacy', { reviewerId: 'alice', comment: 'Old' });
+  const ref = doc(database('alice'), 'reviews', 'legacy');
+  await assertSucceeds(updateDoc(ref, { comment: 'Updated' }));
+  await assertFails(updateDoc(ref, { sellerId: 'seller' }));
+  await assertSucceeds(deleteDoc(ref));
+});
+
 test('sender creates an application message and both participants can read and query it', async () => {
   const ref = doc(database('alice'), 'messages', 'hello');
   await assertSucceeds(setDoc(ref, messageDocument()));

@@ -295,6 +295,27 @@ service cloud.firestore {
         && resource.data.userId == request.auth.uid;
     }
 
+    match /reviews/{reviewId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.auth.uid == request.resource.data.reviewerId
+        && request.resource.data.reviewerId != request.resource.data.sellerId
+        && request.resource.data.rating >= 1
+        && request.resource.data.rating <= 5
+        && request.resource.data.comment.size() <= 500
+        && reviewId == request.resource.data.sellerId + '_'
+          + request.resource.data.reviewerId;
+
+      allow update: if signedIn()
+        && request.auth.uid == resource.data.reviewerId
+        && !request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny(['reviewerId', 'sellerId']);
+
+      allow delete: if signedIn()
+        && request.auth.uid == resource.data.reviewerId;
+    }
+
     match /messages/{messageId} {
       allow read: if signedIn()
         && (resource.data.senderId == request.auth.uid
