@@ -281,6 +281,20 @@ service cloud.firestore {
         );
     }
 
+    match /favorites/{favoriteId} {
+      allow read: if signedIn()
+        && resource.data.userId == request.auth.uid;
+
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.type in ['item', 'seller', 'event']
+        && favoriteId == request.resource.data.userId + '_'
+          + request.resource.data.type + '_' + request.resource.data.targetId;
+
+      allow delete: if signedIn()
+        && resource.data.userId == request.auth.uid;
+    }
+
     match /messages/{messageId} {
       allow read: if signedIn()
         && (resource.data.senderId == request.auth.uid

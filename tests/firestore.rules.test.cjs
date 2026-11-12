@@ -158,6 +158,50 @@ test('item rules reject forged creation, unauthorized edits/deletion and ownersh
   await assertFails(updateDoc(doc(database('alice'), 'items', 'chair'), { userId: 'bob' }));
 });
 
+test('favorites support owner creates, reads, scoped queries and deletes for all three types', async () => {
+  const alice = database('alice');
+  const refs = [];
+  for (const type of ['item', 'seller', 'event']) {
+    const ref = doc(alice, 'favorites', `alice_${type}_target`);
+    const favorite = { userId: 'alice', type, targetId: 'target', createdAt };
+    await assertSucceeds(setDoc(ref, favorite));
+    assert.deepEqual((await assertSucceeds(getDoc(ref))).data(), favorite);
+    refs.push(ref);
+  }
+  await seed('favorites/bob_item_other', { userId: 'bob', type: 'item', targetId: 'other' });
+  const result = await assertSucceeds(getDocs(query(
+    collection(alice, 'favorites'), where('userId', '==', 'alice'),
+  )));
+  assert.equal(result.size, 3);
+  assert.ok(result.docs.every(snapshot => snapshot.data().userId === 'alice'));
+  for (const ref of refs) await assertSucceeds(deleteDoc(ref));
+});
+
+test('favorites deny forged creates, invalid types, IDs and all updates', async () => {
+  const alice = database('alice');
+  const favorite = { userId: 'alice', type: 'item', targetId: 'chair' };
+  await assertFails(setDoc(doc(anonymousDatabase(), 'favorites', 'alice_item_chair'), favorite));
+  await assertFails(setDoc(doc(database('bob'), 'favorites', 'alice_item_chair'), favorite));
+  await assertFails(setDoc(doc(alice, 'favorites', 'alice_other_chair'), { ...favorite, type: 'other' }));
+  await assertFails(setDoc(doc(alice, 'favorites', 'alice_item_wrong'), favorite));
+  await assertFails(setDoc(doc(alice, 'favorites', 'alice_item_chair'), { userId: 'alice', type: 'item' }));
+  await seed('favorites/alice_item_chair', favorite);
+  await assertFails(updateDoc(doc(alice, 'favorites', 'alice_item_chair'), { targetId: 'other' }));
+  await assertFails(setDoc(doc(alice, 'favorites', 'alice_item_chair'), favorite));
+  await assertFails(updateDoc(doc(database('bob'), 'favorites', 'alice_item_chair'), { userId: 'bob' }));
+});
+
+test('favorites reject other users and anonymous reads, queries and deletes', async () => {
+  await seed('favorites/alice_event_sale', { userId: 'alice', type: 'event', targetId: 'sale' });
+  for (const db of [anonymousDatabase(), database('bob')]) {
+    await assertFails(getDoc(doc(db, 'favorites', 'alice_event_sale')));
+    await assertFails(getDocs(collection(db, 'favorites')));
+    await assertFails(getDocs(query(collection(db, 'favorites'), where('userId', '==', 'alice'))));
+    await assertFails(deleteDoc(doc(db, 'favorites', 'alice_event_sale')));
+  }
+  await assertFails(getDocs(collection(database('alice'), 'favorites')));
+});
+
 test('sender creates an application message and both participants can read and query it', async () => {
   const ref = doc(database('alice'), 'messages', 'hello');
   await assertSucceeds(setDoc(ref, messageDocument()));
