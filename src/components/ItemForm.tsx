@@ -150,6 +150,24 @@ export default function ItemForm({ itemId }: { itemId?: string }) {
         return;
       }
 
+      if (formData.title.length > 120) {
+        throw new Error('Item title must be 120 characters or fewer.');
+      }
+      if (formData.description.length > 5000) {
+        throw new Error('Description must be 5,000 characters or fewer.');
+      }
+      const price = Number(formData.price);
+      if (!formData.price.trim() || !Number.isFinite(price) || price < 0) {
+        throw new Error('Enter a valid price of 0 or more.');
+      }
+      const originalPrice = formData.originalPrice.trim() ? Number(formData.originalPrice) : null;
+      if (originalPrice !== null && (!Number.isFinite(originalPrice) || originalPrice < 0)) {
+        throw new Error('Enter a valid original price of 0 or more, or leave it blank.');
+      }
+      if (photos.length > 5) {
+        throw new Error('Maximum 5 photos allowed. Remove a photo before saving.');
+      }
+
       let taxonomy: { category: string; subcategory?: string; itemType?: string };
       if (itemId && !taxonomyChanged) {
         if (!loadedItem) throw new Error('Please reload the item before saving.');
@@ -204,8 +222,8 @@ export default function ItemForm({ itemId }: { itemId?: string }) {
         title: formData.title,
         description: formData.description,
         ...taxonomy,
-        price: parseFloat(formData.price),
-        originalPrice: formData.originalPrice ? parseFloat(formData.originalPrice) : null,
+        price,
+        originalPrice,
         condition: formData.condition,
         location: formData.location || user.location,
         photoURLs,
