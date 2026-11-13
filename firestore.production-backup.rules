@@ -1,0 +1,58 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users collection - anyone can read, only owner can write
+    match /users/{userId} {
+      allow read: if true;
+      allow create: if request.auth.uid == userId;
+      allow update: if request.auth.uid == userId ||
+                       (request.auth != null &&
+                        request.resource.data.keys().hasOnly(['averageRating', 'totalReviews', 'ratingBreakdown']) &&
+                        request.resource.data.averageRating >= 0 && request.resource.data.averageRating <= 5 &&
+                        request.resource.data.totalReviews >= 0);
+      allow delete: if request.auth.uid == userId;
+    }
+
+    // Items collection - anyone can read, only creator can write
+    match /items/{itemId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth.uid == resource.data.userId;
+    }
+
+    // Yard Sale Events - anyone can read, only creator can write
+    match /yardSaleEvents/{eventId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth.uid == resource.data.userId;
+    }
+
+    // Messages - only participants can read, only sender can create
+    match /messages/{messageId} {
+      allow read: if request.auth.uid == resource.data.senderId ||
+                     request.auth.uid == resource.data.recipientId;
+      allow create: if request.auth.uid == request.resource.data.senderId;
+    }
+
+    // Favorites - only owner can read and write
+    match /favorites/{favoriteId} {
+  allow read: if request.auth != null;
+  allow create: if request.auth.uid == request.resource.data.userId &&
+                   request.resource.data.type in ['item', 'seller', 'event'] &&
+                   favoriteId == request.resource.data.userId + '_' + request.resource.data.type + '_' + request.resource.data.targetId;
+  allow delete: if request.auth.uid == resource.data.userId;
+}
+
+    // Reviews - authenticated users can read, reviewers can create/update/delete
+    match /reviews/{reviewId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth.uid == request.resource.data.reviewerId &&
+                       request.resource.data.reviewerId != request.resource.data.sellerId &&
+                       request.resource.data.rating >= 1 && request.resource.data.rating <= 5 &&
+                       request.resource.data.comment.size() <= 500 &&
+                       reviewId == request.resource.data.sellerId + '_' + request.resource.data.reviewerId;
+      allow update: if request.auth.uid == resource.data.reviewerId;
+      allow delete: if request.auth.uid == resource.data.reviewerId;
+    }
+  }
+}

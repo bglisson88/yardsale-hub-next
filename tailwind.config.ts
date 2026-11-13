@@ -15,6 +15,9 @@ const config: Config = {
       spacing: {
         '128': '32rem',
       },
+      fontFamily: {
+        brand: ['var(--font-brand)', 'system-ui', 'sans-serif'],
+      },
     },
   },
   plugins: [],

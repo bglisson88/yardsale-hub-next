@@ -1,0 +1,8 @@
+{
+  "firestore": {
+    "rules": "firestore.event-freeze.rules"
+  },
+  "storage": {
+    "rules": "storage.event-freeze.rules"
+  }
+}

@@ -1,0 +1,39 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function owns(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    function validImage() {
+      return request.resource.size > 0
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType in [
+          'image/jpeg', 'image/png', 'image/gif', 'image/webp'
+        ];
+    }
+
+    // Preserve the production avatar policy, including nested paths and replacement.
+    // Unlike listing photos, avatars have no additional MIME-type restriction.
+    match /avatars/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow create, update: if owns(userId)
+        && request.resource.size <= 1024 * 1024;
+      allow delete: if owns(userId);
+    }
+
+    // Application uploads are flat: items/{userId}/{timestamp}_{filename}.
+    match /items/{userId}/{fileName} {
+      allow get: if true;
+      allow create: if resource == null && owns(userId) && validImage();
+      allow delete: if owns(userId);
+    }
+
+    // Application uploads are flat: events/{userId}/{timestamp}_{filename}.
+    match /events/{userId}/{fileName} {
+      allow get: if true;
+      allow create: if resource == null && owns(userId) && validImage();
+      allow delete: if owns(userId);
+    }
+  }
+}

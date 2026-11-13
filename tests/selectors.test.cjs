@@ -411,6 +411,74 @@ test('create requires title and price before uploading photos or writing', async
   }
 });
 
+test('create and edit reject invalid item fields before photo uploads or writes', async () => {
+  const original = {
+    userId: 'owner', title: 'Old', category: 'Furniture', price: 10, condition: 'good',
+  };
+  const cases = [
+    ['title', 'x'.repeat(121), /title.*120/i],
+    ['description', 'x'.repeat(5001), /description.*5,000/i],
+    ['price', '-1', /valid price.*0 or more/i],
+    ['price', 'not-a-number', /valid price.*0 or more/i],
+    ['price', 'Infinity', /valid price.*0 or more/i],
+    ['originalPrice', '-1', /valid original price.*0 or more/i],
+    ['originalPrice', 'not-a-number', /valid original price.*0 or more/i],
+  ];
+  for (const edit of [false, true]) {
+    for (const [field, value, message] of cases) {
+      const form = edit ? await renderEditForm(original) : await renderItemForm();
+      if (!edit) fillCreateForm(form);
+      form.changeInput(field, value);
+      form.addPhotos([{ name: 'photo.jpg' }]);
+      await form.submit();
+      assert.match(form.errors[0], message, `${edit ? 'edit' : 'create'} ${field}`);
+      assert.equal(form.uploads, 0);
+      assert.equal(form.creates.length, 0);
+      assert.equal(form.updates.length, 0);
+      assert.deepEqual(form.successes, []);
+      assert.deepEqual(form.pushes, []);
+    }
+  }
+});
+
+test('create and edit accept validation boundaries and optional original prices', async () => {
+  const original = {
+    userId: 'owner', title: 'Old', category: 'Furniture', price: 10, condition: 'good',
+  };
+  for (const edit of [false, true]) {
+    for (const originalPrice of ['', '0', '35.75']) {
+      const form = edit ? await renderEditForm(original) : await renderItemForm();
+      if (!edit) fillCreateForm(form);
+      form.changeInput('title', 'x'.repeat(120));
+      form.changeInput('description', 'x'.repeat(5000));
+      form.changeInput('price', '0');
+      form.changeInput('originalPrice', originalPrice);
+      await form.submit();
+      assert.deepEqual(form.errors, []);
+      const fields = edit ? form.updates[0] : form.creates[0].fields;
+      assert.equal(fields.price, 0);
+      assert.equal(fields.originalPrice, originalPrice ? Number(originalPrice) : null);
+      assert.equal(fields.title.length, 120);
+      assert.equal(fields.description.length, 5000);
+    }
+  }
+});
+
+test('editing a legacy listing with more than five photos requires removal before saving', async () => {
+  const form = await renderEditForm({
+    userId: 'owner', title: 'Old', category: 'Furniture', price: 10, condition: 'good',
+    photoURLs: Array.from({ length: 6 }, (_, index) => `photo-${index}`),
+  });
+  await form.submit();
+  assert.match(form.errors[0], /Maximum 5 photos/);
+  assert.equal(form.uploads, 0);
+  assert.equal(form.updates.length, 0);
+  form.removePhoto(6);
+  await form.submit();
+  assert.equal(form.updates.length, 1);
+  assert.equal(form.updates[0].photoURLs.length, 5);
+});
+
 test('create intentionally validates category and subcategory before uploads or writes', async () => {
   const parent = taxonomy.CATEGORIES[1];
   const cases = [
