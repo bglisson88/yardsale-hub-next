@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react';
 import {
   collection, deleteField, doc, getDoc, writeBatch,
 } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage } from '@/lib/firebase';
+import { ref, uploadBytes, getDownloadURL, deleteObject, type StorageReference } from 'firebase/storage';
+import { auth, db, storage } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -65,9 +65,13 @@ export default function EventForm({ eventId }: { eventId?: string }) {
   const { user, loading: authLoading } = useAuthStore();
   useAuthContext();
   const [values, setValues] = useState<EventFormValues>(emptyForm());
+  const [initialValues, setInitialValues] = useState<EventFormValues | null>(
+    eventId ? null : emptyForm(),
+  );
   const [loading, setLoading] = useState(false);
   const [recordLoading, setRecordLoading] = useState(Boolean(eventId));
   const [loadError, setLoadError] = useState('');
+  const [loadedIdentity, setLoadedIdentity] = useState('');
   const [loadedEvent, setLoadedEvent] = useState<YardSaleEvent | null>(null);
   const [privateRecordExists, setPrivateRecordExists] = useState(false);
   const [exactAddressConfirmed, setExactAddressConfirmed] = useState(false);
@@ -77,8 +81,15 @@ export default function EventForm({ eventId }: { eventId?: string }) {
   const router = useRouter();
 
   useEffect(() => {
-    if (!authLoading && !user) router.replace('/auth/login');
-  }, [authLoading, user, router]);
+    if (!authLoading && !user) {
+      const destination = eventId ? `/events/${eventId}/edit` : '/events/new';
+      router.replace(`/auth/login?returnTo=${encodeURIComponent(destination)}`);
+    }
+  }, [authLoading, user, router, eventId]);
+
+  useEffect(() => () => {
+    if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
+  }, [photoPreviewUrl]);
 
   useEffect(() => {
     if (!eventId || authLoading || !user) return;
@@ -86,6 +97,9 @@ export default function EventForm({ eventId }: { eventId?: string }) {
     const currentUserId = user.id;
     const currentUserLocation = user.location;
     let cancelled = false;
+    setRecordLoading(true);
+    setLoadError('');
+    setLoadedEvent(null);
 
     async function loadEvent() {
       try {
@@ -111,7 +125,7 @@ export default function EventForm({ eventId }: { eventId?: string }) {
         } as YardSaleEvent);
         setPrivateRecordExists(privateSnapshot.exists());
         setPhotoURL(data.photoURL ?? null);
-        setValues({
+        const formValues: EventFormValues = {
           title: data.title ?? '',
           description: data.description ?? '',
           address: privateData?.address ?? data.address ?? '',
@@ -121,19 +135,24 @@ export default function EventForm({ eventId }: { eventId?: string }) {
           startTime: toLocalDateTime(startDate, 'time'),
           endDate: toLocalDateTime(endDate, 'date'),
           endTime: toLocalDateTime(endDate, 'time'),
-        });
+        };
+        setValues(formValues);
+        setInitialValues(formValues);
       } catch (error) {
         if (!cancelled) {
           setLoadError(error instanceof Error ? error.message : 'Failed to load sale.');
         }
       } finally {
-        if (!cancelled) setRecordLoading(false);
+        if (!cancelled) {
+          setLoadedIdentity(`${currentUserId}:${currentEventId}`);
+          setRecordLoading(false);
+        }
       }
     }
 
     void loadEvent();
     return () => { cancelled = true; };
-  }, [eventId, authLoading, user]);
+  }, [eventId, authLoading, user?.id]);
 
   const handleInputChange = (
     event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>,
@@ -155,9 +174,20 @@ export default function EventForm({ eventId }: { eventId?: string }) {
     setPhotoPreviewUrl(URL.createObjectURL(file));
   };
 
+  const handleCancel = () => {
+    const changed = Boolean(photoFile) || (initialValues !== null && JSON.stringify(values) !== JSON.stringify(initialValues));
+    if (changed && !window.confirm('Discard your unsaved changes?')) return;
+    router.push('/dashboard');
+  };
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!user || loading) return;
+    if (auth.currentUser?.uid !== user.id ||
+        (eventId && loadedIdentity !== `${user.id}:${eventId}`)) {
+      toast.error('Your session changed. Please reload before saving.');
+      return;
+    }
 
     let dates: { startDate: Date; endDate: Date };
     try {
@@ -180,17 +210,21 @@ export default function EventForm({ eventId }: { eventId?: string }) {
     }
 
     setLoading(true);
+    let uploadedPhoto: StorageReference | null = null;
+    let saved = false;
+    let commitStarted = false;
     try {
-      let nextPhotoURL = photoURL;
-      if (photoFile) {
-        const uploadRef = ref(storage, `events/${user.id}/${Date.now()}_${photoFile.name}`);
-        await uploadBytes(uploadRef, photoFile);
-        nextPhotoURL = await getDownloadURL(uploadRef);
-      }
-
       const eventRef = eventId
         ? doc(db, 'yardSaleEvents', eventId)
         : doc(collection(db, 'yardSaleEvents'));
+      let nextPhotoURL = photoURL;
+      if (photoFile) {
+        const uploadRef = ref(storage, `events/${user.id}/${eventRef.id}_${crypto.randomUUID()}_${photoFile.name}`);
+        await uploadBytes(uploadRef, photoFile);
+        uploadedPhoto = uploadRef;
+        nextPhotoURL = await getDownloadURL(uploadRef);
+      }
+
       const privateRef = doc(db, 'eventPrivate', eventRef.id);
       const now = new Date();
       const publicData = buildPublicEventData({
@@ -226,17 +260,29 @@ export default function EventForm({ eventId }: { eventId?: string }) {
         batch.delete(privateRef);
       }
 
+      commitStarted = true;
       await batch.commit();
-      toast.success(eventId ? 'Sale updated successfully!' : 'Yard sale event created!');
+      saved = true;
+      toast.success(eventId ? 'Event updated successfully!' : 'Yard sale event created!');
       router.push(eventId ? `/events/${eventId}` : '/dashboard');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to save sale.');
+      if (uploadedPhoto && !saved && commitStarted) {
+        toast.error('The save could not be confirmed. The uploaded photo was retained; check the event before retrying.', { duration: 10000 });
+      } else if (uploadedPhoto && !saved) {
+        try {
+          await deleteObject(uploadedPhoto);
+        } catch (cleanupError) {
+          console.error('Failed to clean up uploaded event photo:', cleanupError);
+          toast.error('The event was not saved and its uploaded photo could not be cleaned up.');
+        }
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  if (authLoading || recordLoading) {
+  if (authLoading || recordLoading || (eventId && user && loadedIdentity !== `${user.id}:${eventId}`)) {
     return <div className="min-h-screen flex items-center justify-center"><LoadingSpinner /></div>;
   }
   if (!user) return null;
@@ -253,13 +299,19 @@ export default function EventForm({ eventId }: { eventId?: string }) {
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      <Link href={eventId ? `/events/${eventId}` : '/dashboard'} className="flex items-center gap-2 text-blue-600 hover:text-blue-700 mb-6">
-        <ArrowLeft size={20} aria-hidden="true" /> Back
-      </Link>
+      {eventId ? (
+        <button type="button" onClick={handleCancel} disabled={loading} className="flex items-center gap-2 text-blue-600 hover:text-blue-700 mb-6">
+          <ArrowLeft size={20} aria-hidden="true" /> Back
+        </button>
+      ) : (
+        <Link href="/dashboard" className="flex items-center gap-2 text-blue-600 hover:text-blue-700 mb-6">
+          <ArrowLeft size={20} aria-hidden="true" /> Back
+        </Link>
+      )}
 
       <div className="bg-white rounded-2xl shadow-lg p-5 sm:p-8">
         <h1 className="text-3xl font-bold text-gray-900 mb-8">
-          {eventId ? 'Edit Yard Sale' : 'Create Yard Sale Event'}
+          {eventId ? 'Edit Event' : 'Create Yard Sale Event'}
         </h1>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -384,6 +436,9 @@ export default function EventForm({ eventId }: { eventId?: string }) {
 
           <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition disabled:opacity-50">
             {loading ? 'Saving...' : eventId ? 'Save Changes' : 'Create Event'}
+          </button>
+          <button type="button" onClick={handleCancel} disabled={loading} className="w-full border border-gray-300 text-gray-700 py-3 rounded-lg font-bold hover:bg-gray-100 disabled:opacity-50">
+            Cancel
           </button>
         </form>
       </div>

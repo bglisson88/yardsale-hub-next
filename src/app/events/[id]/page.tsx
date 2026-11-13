@@ -4,12 +4,14 @@ import { useEffect, useState } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import { Calendar, MapPin, Pencil, Users } from 'lucide-react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { db } from '@/lib/firebase';
 import { useAuthContext } from '@/hooks';
 import { useAuthStore } from '@/store';
 import { LoadingSpinner } from '@/components';
 import type { YardSaleEvent } from '@/types';
+import { deleteOwnedEvent } from '@/lib/delete-event';
+import toast from 'react-hot-toast';
 
 function asDate(value: unknown): Date | undefined {
   if (value instanceof Date) return value;
@@ -22,11 +24,28 @@ function asDate(value: unknown): Date | undefined {
 
 export default function EventDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const { user } = useAuthStore();
   useAuthContext();
   const [event, setEvent] = useState<YardSaleEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!user || !event || deleting || user.id !== event.userId) return;
+    if (!window.confirm('Delete this event? This cannot be undone.')) return;
+    setDeleting(true);
+    try {
+      const warning = await deleteOwnedEvent(event.id, user.id);
+      if (warning) toast.error(warning, { duration: 10000 });
+      else toast.success('Event deleted.');
+      router.push('/dashboard/events');
+    } catch (deleteError) {
+      toast.error(deleteError instanceof Error ? deleteError.message : 'Failed to delete event. Please try again.');
+      setDeleting(false);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -80,9 +99,14 @@ export default function EventDetailPage() {
           <div className="flex flex-wrap items-start justify-between gap-4">
             <h1 className="text-3xl font-bold text-gray-900">{event.title}</h1>
             {user?.id === event.userId && (
-              <Link href={`/events/${event.id}/edit`} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700">
-                <Pencil size={16} aria-hidden="true" /> Edit sale
-              </Link>
+              <div className="flex flex-wrap gap-2">
+                <Link href={`/events/${event.id}/edit`} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700">
+                  <Pencil size={16} aria-hidden="true" /> Edit Event
+                </Link>
+                <button type="button" onClick={handleDelete} disabled={deleting} className="rounded-lg bg-red-700 px-4 py-2 font-semibold text-white hover:bg-red-800 disabled:opacity-50">
+                  {deleting ? 'Deleting...' : 'Delete Event'}
+                </button>
+              </div>
             )}
           </div>
           {event.description && <p className="mt-5 whitespace-pre-wrap text-gray-700">{event.description}</p>}
