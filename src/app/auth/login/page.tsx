@@ -1,20 +1,31 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { Logo } from '@/components/Logo';
+import { useAuthContext } from '@/hooks';
+import { loadAuthUser } from '@/hooks/useAuthContext';
+import { useAuthStore } from '@/store';
+import { authDestination } from '@/lib/auth-redirect';
 
-export default function Login() {
+export default function Login({ searchParams }: { searchParams: { returnTo?: string | string[] } }) {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
     password: '',
   });
   const router = useRouter();
+  const destination = authDestination(searchParams.returnTo);
+  const { user, loading: authLoading, setUser } = useAuthStore();
+  useAuthContext();
+
+  useEffect(() => {
+    if (!authLoading && user && !loading) router.replace(destination);
+  }, [authLoading, user, loading, router, destination]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -28,9 +39,11 @@ export default function Login() {
     setLoading(true);
 
     try {
-      await signInWithEmailAndPassword(auth, formData.email, formData.password);
+      const credential = await signInWithEmailAndPassword(auth, formData.email, formData.password);
+      const profile = await loadAuthUser(credential.user);
+      setUser(profile);
       toast.success('Signed in successfully!');
-      router.push('/dashboard');
+      router.replace(destination);
     } catch (error: any) {
       toast.error(error.message || 'Failed to sign in');
     } finally {

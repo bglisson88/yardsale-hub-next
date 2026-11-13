@@ -55,8 +55,11 @@ export default function ItemForm({ itemId }: { itemId?: string }) {
   }, []);
 
   useEffect(() => {
-    if (!authLoading && !user) router.replace('/auth/login');
-  }, [authLoading, user, router]);
+    if (!authLoading && !user) {
+      const destination = itemId ? `/items/${itemId}/edit` : '/items/new';
+      router.replace(`/auth/login?returnTo=${encodeURIComponent(destination)}`);
+    }
+  }, [authLoading, user, router, itemId]);
 
   useEffect(() => {
     let cancelled = false;

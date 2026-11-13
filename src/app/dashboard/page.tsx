@@ -19,6 +19,10 @@ export default function Dashboard() {
   const [eventCount, setEventCount] = useState(0);
 
   useEffect(() => {
+    if (!loading && !user) router.replace('/auth/login?returnTo=%2Fdashboard');
+  }, [loading, user, router]);
+
+  useEffect(() => {
     if (!user?.id) return;
 
     const itemsQuery = query(collection(db, 'items'), where('userId', '==', user.id));
@@ -47,7 +51,6 @@ export default function Dashboard() {
   }
 
   if (!user) {
-    router.push('/auth/login');
     return null;
   }
 
@@ -65,7 +68,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
         {/* Profile Card */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="relative bg-white rounded-xl border border-gray-200 p-6">
           <div className="flex items-center gap-4 mb-4">
             <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center">
               <User className="text-white" size={24} />
@@ -75,16 +78,12 @@ export default function Dashboard() {
               <p className="font-semibold text-gray-900">{user.displayName}</p>
             </div>
           </div>
-          <Link
-            href="/dashboard/profile"
-            className="text-blue-600 font-semibold text-sm hover:underline"
-          >
-            Edit Profile →
-          </Link>
+          <Link href="/dashboard/profile" className="absolute inset-0 rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"><span className="sr-only">View profile</span></Link>
+          <span className="text-blue-600 font-semibold text-sm">View Profile →</span>
         </div>
 
         {/* My Items */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="relative bg-white rounded-xl border border-gray-200 p-6">
           <div className="flex items-center gap-4 mb-4">
             <div className="w-12 h-12 bg-green-600 rounded-full flex items-center justify-center">
               <Package className="text-white" size={24} />
@@ -94,16 +93,12 @@ export default function Dashboard() {
               <p className="font-semibold text-gray-900">{itemCount} Listing{itemCount === 1 ? '' : 's'}</p>
             </div>
           </div>
-          <Link
-            href="/items/new"
-            className="text-blue-600 font-semibold text-sm hover:underline"
-          >
-            Post Item →
-          </Link>
+          <Link href="/dashboard/items" className="absolute inset-0 rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"><span className="sr-only">View my items</span></Link>
+          <span className="text-blue-600 font-semibold text-sm">View Items →</span>
         </div>
 
         {/* My Events */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="relative bg-white rounded-xl border border-gray-200 p-6">
           <div className="flex items-center gap-4 mb-4">
             <div className="w-12 h-12 bg-purple-600 rounded-full flex items-center justify-center">
               <Calendar className="text-white" size={24} />
@@ -113,12 +108,8 @@ export default function Dashboard() {
               <p className="font-semibold text-gray-900">{eventCount} Yard Sale{eventCount === 1 ? '' : 's'}</p>
             </div>
           </div>
-          <Link
-            href="/events/new"
-            className="text-blue-600 font-semibold text-sm hover:underline"
-          >
-            Create Event →
-          </Link>
+          <Link href="/dashboard/events" className="absolute inset-0 rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"><span className="sr-only">View my events</span></Link>
+          <span className="text-blue-600 font-semibold text-sm">View Events →</span>
         </div>
       </div>
 

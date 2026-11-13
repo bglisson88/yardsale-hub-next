@@ -10,6 +10,25 @@ reject unclassified records unless the caller owns the event.
 
 No live data is changed by this document or by the code change.
 
+## Event deletion and photo cleanup
+
+The event owner deletes the public event and any private address together in a
+Firestore batch. Existing rules allow this batch and restrict both deletes to
+the owner. They also allow a public event to be deleted by itself, which can
+leave an orphaned private record. Consider requiring `eventPrivate/{eventId}`
+to be absent after a public event deletion in a separately reviewed rules
+change; assess compatibility with older clients before deploying it.
+
+New event photos use an event ID and a random identifier in their existing
+owner-scoped storage path. On deletion the app checks for other event and item
+references before removing the current photo. Legacy and external photos are
+retained for manual review; replaced photos and photos from uncertain saves
+may also remain. Storage cleanup is not atomic with Firestore, and reference
+checks cannot prevent a concurrent client from creating a new reference. For
+stronger guarantees, use a reviewed server-side cleanup process and reference
+tracking. No automatic cleanup of legacy photos or live data migration is
+performed by this change.
+
 ## Required pre-deployment migration
 
 Run this process in a verified backup and staging project first. Use a

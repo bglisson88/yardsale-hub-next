@@ -373,7 +373,7 @@ test('create auth gates the form while loading and redirects signed-out users on
   assert.equal(form.html(), '');
   assert.deepEqual(form.replacements, []);
   form.flushEffects();
-  assert.deepEqual(form.replacements, ['/auth/login']);
+  assert.deepEqual(form.replacements, ['/auth/login?returnTo=%2Fitems%2Fnew']);
   assert.deepEqual(form.pushes, []);
   assert.equal(form.uploads, 0);
   assert.equal(form.creates.length, 0);

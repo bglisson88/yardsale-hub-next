@@ -41,7 +41,7 @@ export function Navbar() {
       setMenuOpen(false);
       setIsOpen(false);
     };
-    const media = window.matchMedia('(min-width: 768px)');
+    const media = window.matchMedia('(min-width: 1024px)');
     const close = () => {
       setMenuOpen(false);
       setIsOpen(false);
@@ -93,10 +93,11 @@ export function Navbar() {
           </Link>
 
           {/* Desktop Menu */}
-          <div className="hidden md:flex items-center gap-6">
+          <div className="hidden lg:flex items-center gap-3 xl:gap-6">
             <Link href="/items" className={navLink}>Browse</Link>
             <Link href="/events" className={navLink}>Events</Link>
             <Link href="/items/new" className={actionLink}><PlusCircle size={16} aria-hidden="true" /> Sell an Item</Link>
+            <Link href="/events/new" className={actionLink}><PlusCircle size={16} aria-hidden="true" /> Create Yard Sale/Event</Link>
             {loading ? (
               <div className="w-10 h-10" aria-hidden="true" />
             ) : user ? (
@@ -135,7 +136,7 @@ export function Navbar() {
           {/* Mobile Menu Button */}
           <button
             ref={mobileButtonRef}
-            className="md:hidden rounded-lg p-2 text-slate-300 hover:bg-slate-800 hover:text-white"
+            className="lg:hidden rounded-lg p-2 text-slate-300 hover:bg-slate-800 hover:text-white"
             onClick={() => setIsOpen(!isOpen)}
             aria-label={isOpen ? 'Close menu' : 'Open menu'}
             aria-expanded={isOpen}
@@ -147,7 +148,7 @@ export function Navbar() {
 
         {/* Mobile Menu */}
         {isOpen && (
-          <div id="mobile-navigation" className="md:hidden max-h-[calc(100dvh-6rem)] overflow-y-auto border-t border-slate-800 py-3 space-y-1">
+          <div id="mobile-navigation" className="lg:hidden max-h-[calc(100dvh-6rem)] overflow-y-auto border-t border-slate-800 py-3 space-y-1">
             {user && (
               <div className="flex items-center gap-3 px-4 py-3 mb-2 bg-slate-800 rounded-xl">
                 <Avatar src={user.photoURL} name={user.displayName} size={40} />
@@ -160,9 +161,10 @@ export function Navbar() {
             <Link href="/items" onClick={() => setIsOpen(false)} className={mobileLink}>Browse</Link>
             <Link href="/events" onClick={() => setIsOpen(false)} className={mobileLink}>Events</Link>
             <Link href="/items/new" onClick={() => setIsOpen(false)} className={`${actionLink} w-full`}><PlusCircle size={16} aria-hidden="true" /> Sell an Item</Link>
+            <Link href="/events/new" onClick={() => setIsOpen(false)} className={`${actionLink} w-full`}><PlusCircle size={16} aria-hidden="true" /> Create Yard Sale/Event</Link>
             {!loading && (user ? (
               <>
-                {menuLinks.filter((link) => link.href !== '/items/new').map((link) => (
+                {menuLinks.filter((link) => link.href !== '/items/new' && link.href !== '/events/new').map((link) => (
                   <Link key={link.href} href={link.href} onClick={() => setIsOpen(false)} className={mobileLink}>{link.label}</Link>
                 ))}
                 <button onClick={handleSignOut} className="w-full text-left px-4 py-2.5 text-red-300 hover:bg-slate-800 rounded-xl">Sign Out</button>
