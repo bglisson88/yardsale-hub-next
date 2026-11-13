@@ -201,8 +201,8 @@ test('deletion preserves legacy, external, shared, and unverified photos and rep
   assert.deepEqual(failure.deletedPhotos, []);
 });
 
-async function eventForm() {
-  const state = [], dependencies = [], effects = [], pushes = [], errors = [];
+async function eventForm(eventId = 'event1') {
+  const state = [], dependencies = [], effects = [], pushes = [], errors = [], confirmations = [];
   let cursor = 0, tree, confirmed = true;
   let user = { id: 'owner', location: 'Nederland' };
   const data = {
@@ -244,9 +244,10 @@ async function eventForm() {
     'react-hot-toast': { __esModule: true, default: { error: message => errors.push(message) } },
   };
   const Form = load('src/components/EventForm.tsx', imports, {
-    window: { confirm: () => confirmed },
+    window: { confirm: message => { confirmations.push(message); return confirmed; } },
+    URL: { createObjectURL: () => 'blob:preview', revokeObjectURL() {} },
   }).default;
-  function render() { cursor = 0; tree = Form({ eventId: 'event1' }); }
+  function render() { cursor = 0; tree = Form({ eventId }); }
   function find(predicate, node = tree) {
     if (!node || typeof node !== 'object') return undefined;
     if (predicate(node)) return node;
@@ -260,10 +261,18 @@ async function eventForm() {
   await new Promise(resolve => setImmediate(resolve));
   render();
   return {
-    find, pushes,
+    find, pushes, confirmations,
     changeUser(next) { user = next; render(); },
     changeTitle(value) {
       find(node => node.props?.name === 'title').props.onChange({ target: { name: 'title', value } });
+      render();
+    },
+    changeVisibility() {
+      find(node => node.props?.name === 'locationVisibility' && node.props.value === 'exact').props.onChange();
+      render();
+    },
+    choosePhoto() {
+      find(node => node.props?.id === 'event-photo').props.onChange({ target: { files: [{ name: 'sale.jpg' }] } });
       render();
     },
     cancel(allow) {
@@ -288,4 +297,31 @@ test('editing cancels cleanly and asks before discarding changes', async () => {
   assert.ok(changedUser.find(node => node.props?.name === 'address'));
   changedUser.changeUser({ id: 'other', location: 'Nederland' });
   assert.equal(changedUser.find(node => node.props?.name === 'address'), undefined);
+});
+
+test('creating cancels immediately when unchanged and confirms before discarding changes', async () => {
+  const clean = await eventForm(null);
+  const cancel = clean.find(node => node.type === 'button' && node.props.children === 'Cancel');
+  assert.equal(cancel.props.type, 'button');
+  assert.match(cancel.props.className, /\bw-full\b/);
+  clean.cancel(false);
+  assert.deepEqual(clean.confirmations, []);
+  assert.deepEqual(clean.pushes, ['/dashboard']);
+
+  for (const change of [form => form.changeTitle('Sale'), form => form.changeVisibility(), form => form.choosePhoto()]) {
+    const dirty = await eventForm(null);
+    change(dirty);
+    dirty.cancel(false);
+    assert.deepEqual(dirty.confirmations, ['Discard your unsaved changes?']);
+    assert.deepEqual(dirty.pushes, []);
+    dirty.cancel(true);
+    assert.deepEqual(dirty.pushes, ['/dashboard']);
+  }
+
+  const reverted = await eventForm(null);
+  reverted.changeTitle('Sale');
+  reverted.changeTitle('');
+  reverted.cancel(false);
+  assert.deepEqual(reverted.confirmations, []);
+  assert.deepEqual(reverted.pushes, ['/dashboard']);
 });

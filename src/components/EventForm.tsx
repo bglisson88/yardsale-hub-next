@@ -65,7 +65,9 @@ export default function EventForm({ eventId }: { eventId?: string }) {
   const { user, loading: authLoading } = useAuthStore();
   useAuthContext();
   const [values, setValues] = useState<EventFormValues>(emptyForm());
-  const [initialValues, setInitialValues] = useState<EventFormValues | null>(null);
+  const [initialValues, setInitialValues] = useState<EventFormValues | null>(
+    eventId ? null : emptyForm(),
+  );
   const [loading, setLoading] = useState(false);
   const [recordLoading, setRecordLoading] = useState(Boolean(eventId));
   const [loadError, setLoadError] = useState('');
@@ -435,11 +437,9 @@ export default function EventForm({ eventId }: { eventId?: string }) {
           <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition disabled:opacity-50">
             {loading ? 'Saving...' : eventId ? 'Save Changes' : 'Create Event'}
           </button>
-          {eventId && (
-            <button type="button" onClick={handleCancel} disabled={loading} className="w-full border border-gray-300 text-gray-700 py-3 rounded-lg font-bold hover:bg-gray-100 disabled:opacity-50">
-              Cancel
-            </button>
-          )}
+          <button type="button" onClick={handleCancel} disabled={loading} className="w-full border border-gray-300 text-gray-700 py-3 rounded-lg font-bold hover:bg-gray-100 disabled:opacity-50">
+            Cancel
+          </button>
         </form>
       </div>
     </div>
