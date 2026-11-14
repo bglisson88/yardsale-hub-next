@@ -1,9 +1,10 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Users collection - anyone can read, only owner can write
+    // Users collection - owner-only reads; keep existing write policies
     match /users/{userId} {
-      allow read: if true;
+      allow get: if request.auth != null && request.auth.uid == userId;
+      allow list: if false;
       allow create: if request.auth.uid == userId;
       allow update: if request.auth.uid == userId ||
                        (request.auth != null &&
@@ -11,6 +12,26 @@ service cloud.firestore {
                         request.resource.data.averageRating >= 0 && request.resource.data.averageRating <= 5 &&
                         request.resource.data.totalReviews >= 0);
       allow delete: if request.auth.uid == userId;
+    }
+
+    match /publicProfiles/{uid} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    match /usernameClaims/{canonicalUsername} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    match /usernameState/{uid} {
+      allow read, write: if false;
+    }
+
+    match /reservedUsernames/{canonicalUsername} {
+      allow read, write: if false;
     }
 
     // Items collection - anyone can read, only creator can write

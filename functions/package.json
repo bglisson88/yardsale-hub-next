@@ -1,0 +1,21 @@
+{
+  "name": "yardsale-hub-functions",
+  "private": true,
+  "main": "lib/index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test:username": "npm run build && node --test test/username.test.cjs",
+    "test:public-profile": "npm run build && node --test test/public-profile.test.cjs"
+  },
+  "dependencies": {
+    "firebase-admin": "14.5.1",
+    "firebase-functions": "7.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3"
+  }
+}

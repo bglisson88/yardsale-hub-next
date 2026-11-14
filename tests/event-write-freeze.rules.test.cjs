@@ -121,14 +121,32 @@ test('Firestore event writes are frozen while public event reads remain availabl
   }
 });
 
+test('user profiles are private during event freeze', async () => {
+  await seedDocument('users/alice', { displayName: 'Alice' });
+
+  const owner = database('alice');
+  const anonymous = database();
+  const otherUser = database('bob');
+
+  assert.equal((await assertSucceeds(getDoc(
+    doc(owner, 'users', 'alice'),
+  ))).data().displayName, 'Alice');
+
+  for (const db of [anonymous, otherUser]) {
+    await assertFails(getDoc(doc(db, 'users', 'alice')));
+  }
+
+  for (const db of [owner, anonymous, otherUser]) {
+    await assertFails(getDocs(collection(db, 'users')));
+  }
+});
+
 test('unrelated production Firestore permissions remain available', async () => {
   const alice = database('alice');
   const anonymous = database();
 
   const user = doc(alice, 'users', 'alice');
   await assertSucceeds(setDoc(user, { displayName: 'Alice' }));
-  assert.equal((await assertSucceeds(getDoc(doc(anonymous, 'users', 'alice'))))
-    .data().displayName, 'Alice');
   await assertSucceeds(updateDoc(user, { displayName: 'Updated Alice' }));
   await assertSucceeds(deleteDoc(user));
 

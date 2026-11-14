@@ -22,6 +22,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            functions/package-lock.json
 
       - name: Set up Java for Firebase Emulator
         uses: actions/setup-java@v5
@@ -31,6 +34,21 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Install Functions dependencies
+        run: npm --prefix functions ci
+
+      - name: Build Functions
+        run: npm run build:functions
+
+      - name: Test Functions username helpers
+        run: npm --prefix functions run test:username
+
+      - name: Test Functions public profile
+        run: npm --prefix functions run test:public-profile
+
+      - name: Test Functions integration with emulators
+        run: npm run test:functions:integration
 
       - name: Type-check
         run: npm run type-check

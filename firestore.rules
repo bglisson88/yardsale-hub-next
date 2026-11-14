@@ -159,6 +159,26 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /publicProfiles/{uid} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    match /usernameClaims/{canonicalUsername} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    match /usernameState/{uid} {
+      allow read, write: if false;
+    }
+
+    match /reservedUsernames/{canonicalUsername} {
+      allow read, write: if false;
+    }
+
     match /items/{itemId} {
       allow read: if true;
 
