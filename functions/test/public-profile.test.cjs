@@ -5,6 +5,8 @@ const { FieldValue, Timestamp } = require('firebase-admin/firestore');
 const adminFirestore = require('firebase-admin/firestore');
 const { HttpsError } = require('firebase-functions/v2/https');
 const { registerPublicProfile, renameUsername } = require('../lib/public-profile.js');
+const INCONSISTENT_PROFILE_MESSAGE =
+  'Public profile data is inconsistent. Please contact support.';
 
 function request(data, auth = { uid: 'user-123', token: {} }) {
   return { data, auth };
@@ -22,6 +24,68 @@ async function assertCallableError(call, code, message) {
   assert.equal(error.message, message);
   assert.equal(error.details, undefined);
   return error;
+}
+
+function mockRegistration(t, records, uid = 'user-123') {
+  const reads = [];
+  const writes = [];
+  const collection = name => ({
+    doc: id => ({ path: `${name}/${id}`, id }),
+    select: () => ({
+      where: (_field, _operator, value) => ({ kind: 'private-users-query', uid: value }),
+    }),
+    where: (field, _operator, value) => ({
+      kind: 'uid-claims-query',
+      field,
+      uid: value,
+      limit: count => ({ kind: 'uid-claims-query', field, uid: value, count }),
+    }),
+  });
+  const transaction = {
+    async get(ref) {
+      assert.equal(writes.length, 0, 'Transaction reads must precede writes');
+      reads.push(ref);
+      if (ref.kind === 'private-users-query') {
+        const data = records.get(`users/${ref.uid}`);
+        return { docs: data ? [{ get: key => data[key] }] : [] };
+      }
+      if (ref.kind === 'uid-claims-query') {
+        assert.equal(ref.field, 'uid');
+        assert.equal(ref.count, 2);
+        const docs = [...records.entries()]
+          .filter(([path, data]) =>
+            path.startsWith('usernameClaims/') && data.uid === ref.uid,
+          )
+          .slice(0, ref.count)
+          .map(([path, data]) => ({
+            id: path.slice('usernameClaims/'.length),
+            data: () => data,
+          }));
+        return { docs };
+      }
+      return {
+        exists: records.has(ref.path),
+        data: () => records.get(ref.path),
+      };
+    },
+    create(ref, data) { writes.push(['create', ref.path, data]); },
+    delete(ref) { writes.push(['delete', ref.path]); },
+    update(ref, data) { writes.push(['update', ref.path, data]); },
+  };
+  const creationTime = 'Mon, 01 Jan 2024 00:00:00 GMT';
+  t.mock.method(adminAuth, 'getAuth', () => ({
+    getUser: async () => ({ disabled: false, metadata: { creationTime } }),
+  }));
+  t.mock.method(adminFirestore, 'getFirestore', () => ({
+    collection,
+    runTransaction: callback => callback(transaction),
+  }));
+  return {
+    reads,
+    writes,
+    creationTime,
+    run: data => registerPublicProfile.run(request(data, { uid, token: {} })),
+  };
 }
 
 test('requires a verified callable user before processing registration data', async () => {
@@ -63,13 +127,148 @@ test('maps invalid usernames to a safe callable error', async () => {
   }
 });
 
-test('maps hardcoded reserved usernames to the generic unavailable response', async () => {
+test('maps hardcoded reserved usernames to the generic unavailable response', async t => {
+  const registration = mockRegistration(t, new Map([
+    ['users/user-123', { displayName: 'Seller' }],
+  ]));
   const error = await assertCallableError(
-    () => registerPublicProfile.run(request({ username: 'ADMIN' })),
+    () => registration.run({ username: 'ADMIN' }),
     'already-exists',
     'That username is unavailable.',
   );
   assert.equal(error.message.includes('ADMIN'), false);
+});
+
+test('existing registration retries return the current username without writes', async t => {
+  const memberSince = Timestamp.fromDate(new Date('2024-01-01T00:00:00Z'));
+  const records = new Map([
+    ['users/user-123', { displayName: 'Renamed in private data' }],
+    ['publicProfiles/user-123', {
+      username: 'current_name',
+      displayName: 'Public display name',
+      photoURL: null,
+      memberSince,
+    }],
+    ['usernameState/user-123', {
+      lastRenamedAt: Timestamp.fromDate(new Date('2024-02-01T00:00:00Z')),
+    }],
+    ['usernameClaims/current_name', { uid: 'user-123' }],
+    ['usernameClaims/claimed_name', { uid: 'another-user' }],
+    ['reservedUsernames/reserved_name', { reserved: true }],
+  ]);
+  const registration = mockRegistration(t, records);
+
+  for (const username of ['original_name', 'claimed_name', 'reserved_name', 'admin']) {
+    assert.deepEqual(await registration.run({ username }), { username: 'current_name' });
+  }
+  assert.deepEqual(registration.writes, []);
+  assert.deepEqual(records.get('publicProfiles/user-123'), {
+    username: 'current_name',
+    displayName: 'Public display name',
+    photoURL: null,
+    memberSince,
+  });
+  assert.equal(records.get('usernameState/user-123').lastRenamedAt.toDate().toISOString(),
+    '2024-02-01T00:00:00.000Z');
+  assert.equal(records.get('users/user-123').displayName, 'Renamed in private data');
+  assert.equal(
+    registration.reads.some(ref => ref.path === 'usernameClaims/claimed_name' ||
+      ref.path === 'reservedUsernames/reserved_name'),
+    false,
+  );
+  assert.equal(registration.reads.some(ref => ref.kind === 'private-users-query'), false);
+});
+
+test('existing registration retries fail closed on inconsistent profile, claim, or state', async t => {
+  const memberSince = Timestamp.fromDate(new Date('2024-01-01T00:00:00Z'));
+  const validProfile = {
+    username: 'current_name',
+    displayName: 'Public display name',
+    photoURL: null,
+    memberSince,
+  };
+  const validState = { lastRenamedAt: null };
+  const scenarios = [
+    { name: 'missing current claim', remove: 'usernameClaims/current_name' },
+    { name: 'corrupt current claim', set: ['usernameClaims/current_name', { uid: 'other' }] },
+    { name: 'missing state', remove: 'usernameState/user-123' },
+    { name: 'corrupt state', set: ['usernameState/user-123', { lastRenamedAt: 'invalid' }] },
+    {
+      name: 'future state',
+      set: ['usernameState/user-123', { lastRenamedAt: Timestamp.fromMillis(Date.now() + 60_000) }],
+    },
+    {
+      name: 'extra claim',
+      set: ['usernameClaims/extra_name', { uid: 'user-123' }],
+    },
+    {
+      name: 'mismatched Auth memberSince',
+      set: ['publicProfiles/user-123', { ...validProfile, memberSince: Timestamp.fromMillis(0) }],
+    },
+    {
+      name: 'unapproved photo',
+      set: ['publicProfiles/user-123', { ...validProfile, photoURL: 'https://example.test/photo.jpg' }],
+    },
+    {
+      name: 'noncanonical current username',
+      set: ['publicProfiles/user-123', { ...validProfile, username: 'Current_Name' }],
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    const records = new Map([
+      ['users/user-123', { displayName: 'Private display name' }],
+      ['publicProfiles/user-123', validProfile],
+      ['usernameState/user-123', validState],
+      ['usernameClaims/current_name', { uid: 'user-123' }],
+    ]);
+    if (scenario.remove) records.delete(scenario.remove);
+    if (scenario.set) records.set(...scenario.set);
+    const registration = mockRegistration(t, records);
+    await assertCallableError(
+      () => registration.run({ username: 'requested_name' }),
+      'failed-precondition',
+      INCONSISTENT_PROFILE_MESSAGE,
+    );
+    assert.deepEqual(registration.writes, [], scenario.name);
+  }
+});
+
+test('new registration rejects an orphan UID claim and creates no partial records', async t => {
+  const records = new Map([
+    ['users/user-123', { displayName: 'Seller' }],
+    ['usernameClaims/orphan_name', { uid: 'user-123' }],
+  ]);
+  const registration = mockRegistration(t, records);
+
+  await assertCallableError(
+    () => registration.run({ username: 'requested_name' }),
+    'failed-precondition',
+    INCONSISTENT_PROFILE_MESSAGE,
+  );
+  assert.deepEqual(registration.writes, []);
+});
+
+test('new registration creates public profile, claim, and state atomically', async t => {
+  const records = new Map([
+    ['users/user-123', { displayName: 'Seller' }],
+  ]);
+  const registration = mockRegistration(t, records);
+
+  assert.deepEqual(await registration.run({ username: 'seller_1' }), { username: 'seller_1' });
+  assert.deepEqual(registration.writes.map(([operation, path]) => [operation, path]), [
+    ['create', 'publicProfiles/user-123'],
+    ['create', 'usernameClaims/seller_1'],
+    ['create', 'usernameState/user-123'],
+  ]);
+  assert.deepEqual(registration.writes[0][2], {
+    username: 'seller_1',
+    displayName: 'Seller',
+    photoURL: null,
+    memberSince: Timestamp.fromDate(new Date(registration.creationTime)),
+  });
+  assert.deepEqual(registration.writes[1][2], { uid: 'user-123' });
+  assert.deepEqual(registration.writes[2][2], { lastRenamedAt: null });
 });
 
 test('rename requires authentication and accepts only a valid username field', async () => {

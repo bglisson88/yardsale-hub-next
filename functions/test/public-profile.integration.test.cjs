@@ -302,6 +302,98 @@ test('identical retries do not rewrite any records or memberSince', async () => 
   assert.ok((await refs.profile.get()).get('memberSince').isEqual(await expectedMemberSince(user.uid)));
 });
 
+test('retries after rename return the current username without changing account data', async () => {
+  const user = await authenticatedUser();
+  const other = await authenticatedUser();
+  const original = uniqueName();
+  const current = uniqueName();
+  const claimed = uniqueName();
+  const reservedName = uniqueName();
+  const { refs } = await fixture(user, original);
+  const { refs: otherRefs } = await fixture(other, claimed);
+  const currentClaim = reference('usernameClaims', current);
+  const otherClaim = reference('usernameClaims', claimed);
+  const reserved = reference('reservedUsernames', reservedName);
+  await user.register({ username: original });
+  await user.rename({ username: current });
+  await other.register({ username: claimed });
+  await reserved.set({ reserved: true });
+  await refs.user.update({ displayName: 'Changed private display name' });
+
+  const allRefs = [
+    ...Object.values(refs),
+    currentClaim,
+    otherClaim,
+    reserved,
+  ];
+  const beforeSnapshots = await snapshots(allRefs);
+  for (const username of [original, claimed, reservedName, 'admin']) {
+    assert.deepEqual((await user.register({ username })).data, { username: current });
+    assertUnchanged(beforeSnapshots, await snapshots(allRefs));
+  }
+  assert.equal((await refs.profile.get()).get('displayName'), 'Legacy Seller');
+  assert.equal((await refs.profile.get()).get('photoURL'), null);
+});
+
+test('registration retries fail closed on invalid profile, claim, state, or extra claim', async () => {
+  for (const scenario of [
+    'missing-claim',
+    'malformed-claim',
+    'missing-state',
+    'malformed-state',
+    'future-state',
+    'extra-claim',
+    'mismatched-member-since',
+    'non-null-photo',
+    'noncanonical-current-username',
+  ]) {
+    const user = await authenticatedUser();
+    const username = uniqueName();
+    const requested = uniqueName();
+    const { refs } = await fixture(user, username);
+    await user.register({ username });
+    let extraClaim;
+    if (scenario === 'missing-claim') await refs.claim.delete();
+    if (scenario === 'malformed-claim') await refs.claim.set({ uid: user.uid, extra: true });
+    if (scenario === 'missing-state') await refs.state.delete();
+    if (scenario === 'malformed-state') await refs.state.set({ lastRenamedAt: 'invalid' });
+    if (scenario === 'future-state') {
+      await refs.state.set({ lastRenamedAt: Timestamp.fromMillis(Date.now() + 60_000) });
+    }
+    if (scenario === 'extra-claim') {
+      extraClaim = reference('usernameClaims', uniqueName());
+      await extraClaim.set({ uid: user.uid });
+    }
+    if (scenario === 'mismatched-member-since') {
+      await refs.profile.update({ memberSince: Timestamp.fromMillis(0) });
+    }
+    if (scenario === 'non-null-photo') {
+      await refs.profile.update({ photoURL: 'https://example.test/unapproved.jpg' });
+    }
+    if (scenario === 'noncanonical-current-username') {
+      await refs.profile.update({ username: username.toUpperCase() });
+    }
+
+    const allRefs = [...Object.values(refs), ...(extraClaim ? [extraClaim] : [])];
+    const beforeSnapshots = await snapshots(allRefs);
+    await assertCallableError(user.register({ username: requested }), 'failed-precondition');
+    assertUnchanged(beforeSnapshots, await snapshots(allRefs));
+  }
+});
+
+test('new registration rejects orphan UID claims without creating partial records', async () => {
+  const user = await authenticatedUser();
+  const requested = uniqueName();
+  const { refs } = await fixture(user, requested);
+  const orphanClaim = reference('usernameClaims', uniqueName());
+  await orphanClaim.set({ uid: user.uid });
+  const allRefs = [...Object.values(refs), orphanClaim];
+  const beforeSnapshots = await snapshots(allRefs);
+
+  await assertCallableError(user.register({ username: requested }), 'failed-precondition');
+  assertUnchanged(beforeSnapshots, await snapshots(allRefs));
+});
+
 test('missing or malformed private users fail without partial writes', async () => {
   for (const data of [null, {}, { displayName: '' }, { displayName: '  ' }, { displayName: 42 }]) {
     const user = await authenticatedUser();

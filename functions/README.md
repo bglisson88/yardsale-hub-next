@@ -6,6 +6,26 @@ dependencies with `npm --prefix functions ci`.
 The exported `registerPublicProfile` callable registers an authenticated
 user's public profile and username claim. It obtains the member-since date
 from Firebase Auth and does not publish a profile photo.
+For an existing registered account, a valid retry returns its current
+username without writes; callers must use the returned username and must not
+assume the requested username was acquired. The retry verifies the public
+profile, Auth-derived member-since date, username state, and exactly one
+UID-matched username claim. It does not depend on requested-name availability,
+the current private display name, or current reservation status.
+New registrations still require an available, unreserved username and create
+the public profile, claim, and state atomically. Partial records and orphan
+claims matching the account UID fail closed rather than being repaired.
+Each attempt performs a `usernameClaims` UID equality query limited to two
+documents, including new accounts. This adds a billed query read even when no
+claims match and reads at most two matches. It uses the default single-field
+index; malformed extra claim documents that omit or corrupt their `uid` field
+cannot be found by this query. The current claim is still required to be the
+sole matching claim and to contain exactly `{ uid }`. The bounded query is
+not a permanent lock; atomic registration and renaming still coordinate on
+the account's profile/state and username claim documents, and trusted writers
+must preserve those invariants.
+Retries continue to reject non-null public `photoURL` values until PR 2 adds a
+trusted publication-approval invariant. A URL alone is not consent.
 The `renameUsername` callable atomically changes the username and claim.
 The first rename is immediate; later changes require 30 full days. Retrying
 the current username does not change the cooldown.
@@ -32,9 +52,8 @@ records. The requests are launched concurrently, but actual transaction
 overlap is nondeterministic. Tests do not inject a deterministic failure
 during a transaction; that coverage is deferred. Firebase Auth and Firestore
 do not share a transaction: an account deleted after the Auth lookup may
-leave an orphaned profile. Both limitations require separate follow-up.
-Registration retries after a rename or future profile-photo publication require
-a separate compatibility review; registration behavior is unchanged.
+leave an orphaned profile. A transaction query does not make that cross-service
+race atomic. Both limitations require separate follow-up.
 
 Both `firebase.json` and `firebase.event-freeze.json` retain their existing
 Firestore and Storage rules selections. The rules suite exercises both.

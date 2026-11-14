@@ -69,7 +69,9 @@ function isNonemptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-function isValidUsernameState(value: unknown): boolean {
+function isValidUsernameState(
+  value: unknown,
+): value is Record<string, unknown> & { lastRenamedAt: Timestamp | null } {
   return isRecord(value) &&
     hasOnlyKeys(value, ['lastRenamedAt']) &&
     (value.lastRenamedAt === null || value.lastRenamedAt instanceof Timestamp);
@@ -98,6 +100,25 @@ function throwRenameBackendError(error: unknown): never {
   throw new HttpsError('internal', 'Unable to change your username. Please try again.');
 }
 
+function throwRegistrationBackendError(error: unknown): never {
+  if (error instanceof HttpsError) throw error;
+  const code = isRecord(error) ? error.code : undefined;
+  if (code === 4 || code === 'deadline-exceeded') {
+    throw new HttpsError('deadline-exceeded', 'Public profile registration timed out. Please try again.');
+  }
+  if (code === 10 || code === 'aborted') {
+    throw new HttpsError('aborted', 'Public profile registration was interrupted. Please try again.');
+  }
+  if (code === 14 || code === 'unavailable') {
+    throw new HttpsError('unavailable', 'The public profile service is unavailable. Please try again.');
+  }
+  if (code === 8 || code === 'resource-exhausted') {
+    throw new HttpsError('resource-exhausted', 'The public profile service is busy. Please try again.');
+  }
+  logger.error('Public profile registration failed due to an internal backend error.');
+  throw new HttpsError('internal', 'Unable to register a public profile. Please try again.');
+}
+
 export const registerPublicProfile = onCall(async request => {
   const uid = request.auth?.uid;
   if (!uid) {
@@ -105,9 +126,6 @@ export const registerPublicProfile = onCall(async request => {
   }
 
   const username = registrationUsername(request.data);
-  if (isReservedUsername(username)) {
-    throw new HttpsError('already-exists', UNAVAILABLE_USERNAME_MESSAGE);
-  }
 
   let authUser;
   try {
@@ -119,7 +137,7 @@ export const registerPublicProfile = onCall(async request => {
     ) {
       throw new HttpsError('unauthenticated', 'Your account is unavailable.');
     }
-    throw error;
+    throwRegistrationBackendError(error);
   }
   if (authUser.disabled) {
     throw new HttpsError('unauthenticated', 'Your account is unavailable.');
@@ -134,25 +152,97 @@ export const registerPublicProfile = onCall(async request => {
   const claimRef = firestore.collection('usernameClaims').doc(username);
   const reservedRef = firestore.collection('reservedUsernames').doc(username);
   const stateRef = firestore.collection('usernameState').doc(uid);
+  const userClaimsQuery = firestore.collection('usernameClaims')
+    .where('uid', '==', uid)
+    .limit(2);
 
-  return firestore.runTransaction(async transaction => {
-    const userSnapshot = await transaction.get(privateUserQuery);
-    const [
-      profileSnapshot,
-      claimSnapshot,
-      reservedSnapshot,
-      stateSnapshot,
-    ] = await Promise.all([
+  return Promise.resolve().then(() => firestore.runTransaction(async transaction => {
+    const [profileSnapshot, stateSnapshot, userClaimsSnapshot] = await Promise.all([
       transaction.get(profileRef),
-      transaction.get(claimRef),
-      transaction.get(reservedRef),
       transaction.get(stateRef),
+      transaction.get(userClaimsQuery),
     ]);
 
-    if (reservedSnapshot.exists) {
+    if (profileSnapshot.exists) {
+      const profile: unknown = profileSnapshot.data();
+      const state: unknown = stateSnapshot.data();
+      let currentUsername: string;
+      try {
+        currentUsername = canonicalizeUsername(
+          isRecord(profile) ? profile.username : undefined,
+        );
+      } catch (error) {
+        if (error instanceof TypeError) throwInconsistentProfile();
+        throw error;
+      }
+
+      const currentClaim = userClaimsSnapshot.docs[0];
+      const claimData: unknown = currentClaim?.data();
+      let lastRenamedAtValid = false;
+      if (isValidUsernameState(state) && state.lastRenamedAt instanceof Timestamp) {
+        try {
+          lastRenamedAtValid =
+            cooldownDateFromTimestamp(
+              state.lastRenamedAt.seconds,
+              state.lastRenamedAt.nanoseconds,
+            ).getTime() <= Date.now();
+        } catch (error) {
+          if (!(error instanceof RangeError)) throw error;
+        }
+      } else if (isValidUsernameState(state) && state.lastRenamedAt === null) {
+        lastRenamedAtValid = true;
+      }
+
+      if (
+        !isRecord(profile) ||
+        !hasOnlyKeys(profile, ['username', 'displayName', 'photoURL', 'memberSince']) ||
+        profile.username !== currentUsername ||
+        !isNonemptyString(profile.displayName) ||
+        profile.photoURL !== null ||
+        !(profile.memberSince instanceof Timestamp) ||
+        !profile.memberSince.isEqual(memberSince) ||
+        userClaimsSnapshot.docs.length !== 1 ||
+        currentClaim.id !== currentUsername ||
+        !isRecord(claimData) ||
+        !hasOnlyKeys(claimData, ['uid']) ||
+        claimData.uid !== uid ||
+        !stateSnapshot.exists ||
+        !isValidUsernameState(state) ||
+        !lastRenamedAtValid
+      ) {
+        throwInconsistentProfile();
+      }
+
+      return { username: currentUsername };
+    }
+
+    if (userClaimsSnapshot.docs.length !== 0) {
+      throwInconsistentProfile();
+    }
+    if (stateSnapshot.exists) {
+      throwInconsistentProfile();
+    }
+
+    if (isReservedUsername(username)) {
       throw new HttpsError('already-exists', UNAVAILABLE_USERNAME_MESSAGE);
     }
 
+    const [claimSnapshot, reservedSnapshot] = await Promise.all([
+      transaction.get(claimRef),
+      transaction.get(reservedRef),
+    ]);
+    if (reservedSnapshot.exists) {
+      throw new HttpsError('already-exists', UNAVAILABLE_USERNAME_MESSAGE);
+    }
+    if (claimSnapshot.exists) {
+      const claim: unknown = claimSnapshot.data();
+      if (isRecord(claim) && claim.uid !== uid) {
+        throw new HttpsError('already-exists', UNAVAILABLE_USERNAME_MESSAGE);
+      }
+      throwInconsistentProfile();
+    }
+
+    const userSnapshot = await transaction.get(privateUserQuery);
     const privateUser = userSnapshot.docs[0];
     if (!privateUser) {
       throw new HttpsError(
@@ -168,43 +258,6 @@ export const registerPublicProfile = onCall(async request => {
       );
     }
 
-    if (profileSnapshot.exists) {
-      const profile: unknown = profileSnapshot.data();
-      const claim: unknown = claimSnapshot.data();
-      const state: unknown = stateSnapshot.data();
-      if (
-        !isRecord(profile) ||
-        !hasOnlyKeys(profile, ['username', 'displayName', 'photoURL', 'memberSince']) ||
-        profile.username !== username ||
-        !isNonemptyString(profile.displayName) ||
-        profile.displayName !== displayName ||
-        profile.photoURL !== null ||
-        !(profile.memberSince instanceof Timestamp) ||
-        !profile.memberSince.isEqual(memberSince) ||
-        !claimSnapshot.exists ||
-        !isRecord(claim) ||
-        !hasOnlyKeys(claim, ['uid']) ||
-        claim.uid !== uid ||
-        !stateSnapshot.exists ||
-        !isValidUsernameState(state)
-      ) {
-        throwInconsistentProfile();
-      }
-
-      return { username };
-    }
-
-    if (claimSnapshot.exists) {
-      const claim: unknown = claimSnapshot.data();
-      if (isRecord(claim) && claim.uid !== uid) {
-        throw new HttpsError('already-exists', UNAVAILABLE_USERNAME_MESSAGE);
-      }
-      throwInconsistentProfile();
-    }
-    if (stateSnapshot.exists) {
-      throwInconsistentProfile();
-    }
-
     transaction.create(profileRef, {
       username,
       displayName,
@@ -215,7 +268,7 @@ export const registerPublicProfile = onCall(async request => {
     transaction.create(stateRef, { lastRenamedAt: null });
 
     return { username };
-  });
+  })).catch(throwRegistrationBackendError);
 });
 
 export const renameUsername = onCall(async request => {
