@@ -38,7 +38,7 @@ export default function EventDetailPage() {
     setDeleting(true);
     try {
       const warning = await deleteOwnedEvent(event.id, user.id);
-      if (warning) toast.error(warning, { duration: 10000 });
+      if (warning) toast.success(warning, { duration: 10000 });
       else toast.success('Event deleted.');
       router.push('/dashboard/events');
     } catch (deleteError) {

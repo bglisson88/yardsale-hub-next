@@ -31,7 +31,7 @@ function harness(file, initialAuth = { user: null, loading: false }) {
   let currentPath = '/';
   const listeners = new Map();
   const mediaListeners = new Map();
-  const pushes = [], errors = [], constraints = [];
+  const pushes = [], errors = [], constraints = [], queriedCollections = [];
   let signOutCalls = 0, rejectSignOut = false;
   const document = {
     addEventListener: (name, listener) => listeners.set(name, listener),
@@ -66,7 +66,8 @@ function harness(file, initialAuth = { user: null, loading: false }) {
     'next/navigation': { useRouter: () => ({ push: url => pushes.push(url) }), usePathname: () => currentPath },
     'firebase/auth': { signOut: async () => { signOutCalls++; if (rejectSignOut) throw new Error('offline'); } },
     'firebase/firestore': {
-      collection: stub, query: stub, where: (...args) => constraints.push(args), Timestamp: { now: stub },
+      collection: (_, name) => { queriedCollections.push(name); return name; },
+      query: stub, where: (...args) => constraints.push(args), Timestamp: { now: stub },
       getDocs: async () => ({ docs: [] }),
     },
     'react-hot-toast': { __esModule: true, default: { error: message => errors.push(message) } },
@@ -109,7 +110,7 @@ function harness(file, initialAuth = { user: null, loading: false }) {
   }
   render();
   return {
-    find, render, refs, pushes, errors, constraints,
+    find, render, refs, pushes, errors, constraints, queriedCollections,
     get signOutCalls() { return signOutCalls; },
     rejectSignOut() { rejectSignOut = true; },
     auth(next) { authState = next; render(); render(); },
@@ -251,46 +252,45 @@ test('desktop/mobile sign out closes menus and redirects only on success', async
   nav.unmount();
 });
 
-test('homepage search submits supported filters for items and events', () => {
-  for (const type of ['items', 'events']) {
-    const page = harness('src/app/page.tsx');
-    for (const [label, value] of [['Search items or events', ' lamp & desk '], ['Location (city or ZIP)', ' 12345 '], ['Search for', type]]) {
-      page.find(node => node.props?.['aria-label'] === label).props.onChange({ target: { value } });
-      page.render();
-    }
-    page.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} });
-    assert.equal(page.pushes[0], `/${type}?search=lamp+%26+desk&location=12345`);
-    assert.equal(page.constraints[0][0], 'startDate');
+test('homepage keeps item search available without querying public events', () => {
+  const page = harness('src/app/page.tsx');
+  for (const [label, value] of [['Search items or events', ' lamp & desk '], ['Location (city or ZIP)', ' 12345 ']]) {
+    page.find(node => node.props?.['aria-label'] === label).props.onChange({ target: { value } });
+    page.render();
   }
+  page.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} });
+  assert.equal(page.pushes[0], '/items?search=lamp+%26+desk&location=12345');
+  assert.equal(page.queriedCollections.includes('yardSaleEvents'), false);
+  assert.ok(page.find(node => node.props?.href?.startsWith('/events')));
+  const eventOption = page.find(node => node.type === 'option' && node.props?.value === 'events');
+  assert.equal(eventOption.props.disabled, true);
+  const notice = page.find(node => node.props?.role === 'status');
+  assert.match(notice.props.children, /Public event browsing is temporarily unavailable while we improve privacy protections\./);
 });
 
-test('event destination honors restored title search together with existing location filtering', () => {
-  const events = [
-    { id: 'a', title: 'Neighborhood Lamp Sale', location: '12345', startDate: new Date('2026-10-21') },
-    { id: 'b', title: 'Book Sale', location: '12345', startDate: new Date('2026-10-22') },
-    { id: 'c', title: 'Lamp & Desk Sale', location: '54321', startDate: new Date('2026-10-23') },
-  ];
-  for (const [searchParams, included, excluded] of [
-    [{}, ['Neighborhood Lamp Sale', 'Book Sale', 'Lamp &amp; Desk Sale'], []],
-    [{ search: ' LAMP ' }, ['Neighborhood Lamp Sale', 'Lamp &amp; Desk Sale'], ['Book Sale']],
-    [{ search: 'lamp', location: '12345' }, ['Neighborhood Lamp Sale'], ['Book Sale', 'Lamp &amp; Desk Sale']],
-    [{ search: 'missing' }, ['No events found'], events.map(event => event.title)],
-  ]) {
-    let cursor = 0;
-    const { default: Events } = load('src/app/events/page.tsx', {
-      react: { ...React, useState: () => [cursor++ === 0 ? events : false, () => {}], useEffect() {} },
-      'firebase/firestore': {},
-      '@/lib/firebase': {},
-      '@/components': {
-        LoadingSpinner: () => null,
-        EmptyState: ({ title }) => React.createElement('p', null, title),
-      },
-      'next/link': { __esModule: true, default: 'a' },
-    });
-    const html = renderToStaticMarkup(Events({ searchParams }));
-    for (const title of included) assert.ok(html.includes(title), title);
-    for (const title of excluded) assert.ok(!html.includes(title), title);
-  }
+test('events route shows temporary availability without querying events and keeps creation navigation', () => {
+  let collectionCalls = 0, queryCalls = 0;
+  const { default: Events } = load('src/app/events/page.tsx', {
+    react: {
+      ...React,
+      useState: initial => [initial, () => {}],
+      useEffect: effect => { effect(); },
+    },
+    'firebase/firestore': {
+      collection: () => { collectionCalls++; return {}; },
+      query: () => { queryCalls++; return {}; },
+      where: () => ({}),
+      Timestamp: { now: () => new Date() },
+      getDocs: async () => ({ docs: [], forEach() {} }),
+    },
+    '@/lib/firebase': { db: {} },
+    'next/link': { __esModule: true, default: 'a' },
+  });
+  const html = renderToStaticMarkup(Events());
+  assert.match(html, /Public event browsing is temporarily unavailable while we improve privacy protections\./);
+  assert.match(html, /href="\/events\/new"/);
+  assert.equal(collectionCalls, 0);
+  assert.equal(queryCalls, 0);
 });
 
 test('homepage quick links use the updated taxonomy and one layout strip mount', () => {

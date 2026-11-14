@@ -132,6 +132,7 @@ test('dashboard collections query only the signed-in owner and include sold item
 function deletion(options = {}) {
   const removed = [];
   const deletedPhotos = [];
+  let referenceQueries = 0;
   const event = { userId: 'owner', photoURL: options.photoURL || null };
   const privateData = { userId: options.privateOwner || 'owner', address: 'private' };
   const bucket = 'test-bucket';
@@ -149,6 +150,7 @@ function deletion(options = {}) {
       where: (...args) => args,
       query: (collection, constraint) => ({ collection, constraint }),
       getDocsFromServer: async query => {
+        referenceQueries++;
         if (options.queryError) throw new Error('query failed');
         return { empty: options.referenced !== query.collection };
       },
@@ -163,16 +165,25 @@ function deletion(options = {}) {
     '@/lib/firebase': { db: {}, storage: {} },
   };
   const { deleteOwnedEvent } = load('src/lib/delete-event.ts', mocks, { console: { error() {} } });
-  return { run: () => deleteOwnedEvent('event1', 'owner'), removed, deletedPhotos };
+  return {
+    run: () => deleteOwnedEvent('event1', 'owner'),
+    removed,
+    deletedPhotos,
+    get referenceQueries() { return referenceQueries; },
+  };
 }
 
 const scopedPhoto = 'events/owner/event1_123e4567-e89b-42d3-a456-426614174000_photo.jpg';
 
 test('event deletion checks ownership and atomically removes public and private records', async () => {
   const own = deletion({ photoURL: scopedPhoto });
-  assert.equal(await own.run(), null);
+  assert.equal(
+    await own.run(),
+    'Event deleted. Its photo was retained; cleanup is deferred until references can be checked safely.',
+  );
   assert.deepEqual(own.removed, ['yardSaleEvents/event1', 'eventPrivate/event1']);
-  assert.deepEqual(own.deletedPhotos, [scopedPhoto]);
+  assert.deepEqual(own.deletedPhotos, []);
+  assert.equal(own.referenceQueries, 0);
   const noPrivate = deletion({ privateExists: false });
   await noPrivate.run();
   assert.deepEqual(noPrivate.removed, ['yardSaleEvents/event1']);
@@ -183,22 +194,117 @@ test('event deletion checks ownership and atomically removes public and private 
   }
 });
 
-test('deletion preserves legacy, external, shared, and unverified photos and reports partial failures', async () => {
+test('event deletion retains photos without a safe global reference check', async () => {
   for (const options of [
     { photoURL: 'events/owner/12345_old.jpg' },
     { photoURL: scopedPhoto, bucket: 'other-bucket' },
     { photoURL: scopedPhoto, referenced: 'items' },
     { photoURL: scopedPhoto, referenced: 'yardSaleEvents' },
-    { photoURL: scopedPhoto, queryError: true },
-    { photoURL: scopedPhoto, photoError: true },
   ]) {
     const operation = deletion(options);
     assert.match(await operation.run(), /Event deleted/);
     assert.deepEqual(operation.deletedPhotos, []);
+    assert.equal(operation.referenceQueries, 0);
   }
+
   const failure = deletion({ photoURL: scopedPhoto, commitError: true });
   await assert.rejects(failure.run(), /Could not confirm event deletion/);
   assert.deepEqual(failure.deletedPhotos, []);
+});
+
+async function eventDetail(deleteResult = null, deleteError = null) {
+  const state = [], effects = [], notifications = [], pushes = [];
+  let cursor = 0, tree;
+  const eventData = {
+    userId: 'owner',
+    title: 'Sale',
+    location: 'Nederland',
+    locationVisibility: 'general',
+    startDate: new Date(2026, 10, 10, 9),
+    endDate: new Date(2026, 10, 10, 12),
+    itemCount: 0,
+  };
+  const hooks = {
+    useState(initial) {
+      const index = cursor++;
+      if (!(index in state)) state[index] = initial;
+      return [state[index], value => { state[index] = typeof value === 'function' ? value(state[index]) : value; }];
+    },
+    useEffect(effect) { effects.push(effect); },
+  };
+  const Icon = () => null;
+  const imports = {
+    react: hooks,
+    'next/link': { __esModule: true, default: 'a' },
+    'next/navigation': {
+      useParams: () => ({ id: 'event1' }),
+      useRouter: () => ({ push: path => pushes.push(path) }),
+    },
+    'firebase/firestore': {
+      doc: (_, collection, id) => ({ collection, id }),
+      getDoc: async () => ({ exists: () => true, id: 'event1', data: () => eventData }),
+    },
+    'lucide-react': { Calendar: Icon, MapPin: Icon, Pencil: Icon, Users: Icon },
+    '@/lib/firebase': { db: {} },
+    '@/hooks': { useAuthContext() {} },
+    '@/store': { useAuthStore: () => ({ user: { id: 'owner' } }) },
+    '@/components': { LoadingSpinner: Icon },
+    '@/lib/delete-event': {
+      deleteOwnedEvent: async () => {
+        if (deleteError) throw deleteError;
+        return deleteResult;
+      },
+    },
+    'react-hot-toast': {
+      __esModule: true,
+      default: {
+        success: (...args) => notifications.push(['success', ...args]),
+        error: (...args) => notifications.push(['error', ...args]),
+      },
+    },
+  };
+  const Page = load('src/app/events/[id]/page.tsx', imports, {
+    window: { confirm: () => true },
+  }).default;
+  function render() { cursor = 0; tree = Page(); }
+  function find(predicate, node = tree) {
+    if (!node || typeof node !== 'object') return undefined;
+    if (predicate(node)) return node;
+    for (const child of React.Children.toArray(node.props?.children)) {
+      const found = find(predicate, child);
+      if (found) return found;
+    }
+  }
+  render();
+  effects.splice(0).forEach(effect => effect());
+  await new Promise(resolve => setImmediate(resolve));
+  render();
+  return {
+    delete: () => find(node => node.type === 'button' && node.props.children === 'Delete Event').props.onClick(),
+    notifications,
+    pushes,
+  };
+}
+
+test('event deletion notifications distinguish deferred cleanup from deletion failures', async () => {
+  const ordinary = await eventDetail();
+  await ordinary.delete();
+  assert.deepEqual(ordinary.notifications, [['success', 'Event deleted.']]);
+  assert.deepEqual(ordinary.pushes, ['/dashboard/events']);
+
+  const deferredMessage = 'Event deleted. Its photo was retained; cleanup is deferred until references can be checked safely.';
+  const deferred = await eventDetail(deferredMessage);
+  await deferred.delete();
+  assert.equal(deferred.notifications.length, 1);
+  assert.equal(deferred.notifications[0][0], 'success');
+  assert.equal(deferred.notifications[0][1], deferredMessage);
+  assert.equal(deferred.notifications[0][2].duration, 10000);
+  assert.deepEqual(deferred.pushes, ['/dashboard/events']);
+
+  const failed = await eventDetail(null, new Error('Could not confirm event deletion.'));
+  await failed.delete();
+  assert.deepEqual(failed.notifications, [['error', 'Could not confirm event deletion.']]);
+  assert.deepEqual(failed.pushes, []);
 });
 
 async function eventForm(eventId = 'event1') {

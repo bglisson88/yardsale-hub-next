@@ -1,5 +1,5 @@
-import { collection, doc, getDoc, getDocsFromServer, query, where, writeBatch } from 'firebase/firestore';
-import { deleteObject, ref } from 'firebase/storage';
+import { doc, getDoc, writeBatch } from 'firebase/firestore';
+import { ref } from 'firebase/storage';
 import { db, storage } from '@/lib/firebase';
 
 export async function deleteOwnedEvent(eventId: string, userId: string): Promise<string | null> {
@@ -33,16 +33,9 @@ export async function deleteOwnedEvent(eventId: string, userId: string): Promise
         !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}_[^/]+$/i.test(suffix)) {
       return 'Event deleted. Its legacy or external photo was retained for manual review.';
     }
-    const [events, items] = await Promise.all([
-      getDocsFromServer(query(collection(db, 'yardSaleEvents'), where('photoURL', '==', photoURL))),
-      getDocsFromServer(query(collection(db, 'items'), where('photoURLs', 'array-contains', photoURL))),
-    ]);
-    if (!events.empty || !items.empty) return 'Event deleted. Its photo is still referenced by another listing and was retained.';
-    await deleteObject(photo);
-    return null;
+    return 'Event deleted. Its photo was retained; cleanup is deferred until references can be checked safely.';
   } catch (error) {
-    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'storage/object-not-found') return null;
-    console.error('Event deleted but photo cleanup failed:', error);
-    return 'Event deleted, but its photo could not be cleaned up. Please contact support.';
+    console.error('Event photo cleanup was deferred:', error);
+    return 'Event deleted. Its photo was retained because it could not be verified safely.';
   }
 }

@@ -1,18 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
 import { Search, MapPin, ArrowRight, Radio, Lamp, Sparkles } from 'lucide-react';
-import { db } from '@/lib/firebase';
 import { useItems } from '@/hooks';
 import { EmptyState } from '@/components/EmptyState';
 import { ItemCard } from '@/components/ItemCard';
-import { EventCard } from '@/components/EventCard';
 import { Logo } from '@/components/Logo';
 import { CATEGORIES, categoryHref } from '@/lib/categories';
-import type { YardSaleEvent } from '@/types';
 
 export default function Home() {
   const router = useRouter();
@@ -21,32 +17,7 @@ export default function Home() {
   const [searchType, setSearchType] = useState('items');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const { items } = useItems();
-  const [events, setEvents] = useState<YardSaleEvent[]>([]);
   const category = CATEGORIES.find((entry) => entry.id === selectedCategory);
-
-  useEffect(() => {
-    let active = true;
-    const load = async () => {
-      try {
-        const q = query(collection(db, 'yardSaleEvents'), where('startDate', '>=', Timestamp.now()));
-        const snap = await getDocs(q);
-        const list = snap.docs.map((document) => {
-          const data = document.data();
-          return {
-            ...data,
-            id: document.id,
-            startDate: data.startDate?.toDate(),
-            endDate: data.endDate?.toDate(),
-          } as YardSaleEvent;
-        });
-        if (active) setEvents(list.sort((a, b) => a.startDate.getTime() - b.startDate.getTime()).slice(0, 3));
-      } catch (error) {
-        console.error('Error loading events:', error);
-      }
-    };
-    load();
-    return () => { active = false; };
-  }, []);
 
   const handleSearch = (event: React.FormEvent) => {
     event.preventDefault();
@@ -88,7 +59,7 @@ export default function Home() {
                 </div>
                 <select aria-label="Search for" value={searchType} onChange={(event) => setSearchType(event.target.value)} className="bg-slate-900 text-white px-3 py-2.5 rounded-xl focus:ring-2 focus:ring-emerald-400">
                   <option value="items">Items</option>
-                  <option value="events">Events</option>
+                  <option value="events" disabled>Events (temporarily unavailable)</option>
                 </select>
                 <button type="submit" className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-slate-950 hover:bg-emerald-500 transition-colors">Search</button>
               </form>
@@ -171,11 +142,9 @@ export default function Home() {
             <div><p className="text-xs font-bold uppercase tracking-widest text-amber-400 mb-2">Around the neighborhood</p><h2 className="text-2xl sm:text-3xl font-extrabold text-white">Upcoming Events</h2></div>
             <Link href="/events" className="flex items-center gap-1 text-sm font-semibold text-emerald-400 hover:underline">View all <ArrowRight size={16} aria-hidden="true" /></Link>
           </div>
-          {events.length === 0 ? (
-            <EmptyState appearance="dark" title="No upcoming events" description="Hosting a sale? Put it on the map!" />
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">{events.map((event) => <EventCard key={event.id} event={event} appearance="dark" />)}</div>
-          )}
+          <p role="status" className="py-12 text-center text-slate-300">
+            Public event browsing is temporarily unavailable while we improve privacy protections.
+          </p>
         </div>
       </section>
 
