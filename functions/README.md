@@ -1,34 +1,38 @@
-# Firebase Functions foundation
+# Firebase Functions
 
-Use Node.js 22. Install the root dependencies with `npm ci` and the separate
-Functions dependencies with `npm --prefix functions ci`.
+Use Node.js 22. Install root dependencies with `npm ci` and Functions
+dependencies with `npm --prefix functions ci`.
+
+The exported `registerPublicProfile` callable registers an authenticated
+user's public profile and username claim. It obtains the member-since date
+from Firebase Auth and does not publish a profile photo.
 
 From the repository root:
 
 ```bash
 npm run build:functions
-npm run test:functions
+npm --prefix functions run test:username
+npm --prefix functions run test:public-profile
+npm run test:functions:integration
 npm run test:rules
 ```
 
-`test:functions` starts Authentication, Functions, Firestore, and Storage
-emulators against the local-only `demo-yardsale-hub` project and checks that
-the compiled module loads. It exports no endpoints and performs no database
-operations. The absence of discovered functions is intentional.
+The integration command starts Auth, Functions, and Firestore emulators for
+`demo-yardsale-hub`. It requires the configured localhost ports and emulator
+hub, fails closed if they are missing or different, and uses only dummy
+emulator authorization. It creates unique fixtures and removes them after the suite.
+Run emulator suites sequentially and do not share their emulator with other
+tests or data. No Firebase credentials or live project are needed.
+
+The tests cover rejected operations and concurrent claims without partial
+records. The requests are launched concurrently, but actual transaction
+overlap is nondeterministic. Tests do not inject a deterministic failure
+during a transaction; that coverage is deferred. Firebase Auth and Firestore
+do not share a transaction: an account deleted after the Auth lookup may
+leave an orphaned profile. Both limitations require separate follow-up.
 
 Both `firebase.json` and `firebase.event-freeze.json` retain their existing
-Firestore and Storage rules selections. To check the alternative configuration:
-
-```bash
-npm run build:functions
-npx firebase emulators:exec --config firebase.event-freeze.json \
-  --project demo-yardsale-hub --only auth,functions,firestore,storage \
-  "node -e \"require('./functions/lib/index.js')\""
-```
-
-Admin initialization uses application default credentials, supplied by the
-managed runtime in a future deployment. No service-account key is needed.
-This foundation does not configure deployment credentials, deploy any
-resources, or connect the application's authentication flows to emulators.
-Future deployments require separate staging-only IAM and project review;
-do not deploy this foundation to production.
+Firestore and Storage rules selections. The rules suite exercises both.
+Admin initialization in the Functions runtime uses managed credentials for a
+future deployment; no service-account key is needed. Deployment requires
+separate staging-only IAM and project review.

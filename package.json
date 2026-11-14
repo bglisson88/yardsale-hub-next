@@ -10,6 +10,7 @@
     "type-check": "tsc --noEmit",
     "build:functions": "npm --prefix functions run build",
     "test:functions": "npm run build:functions && firebase emulators:exec --project demo-yardsale-hub --only auth,functions,firestore,storage \"node -e \\\"require('./functions/lib/index.js')\\\"\"",
+    "test:functions:integration": "firebase emulators:exec --project demo-yardsale-hub --only auth,functions,firestore \"FUNCTIONS_EMULATOR_HOST=127.0.0.1:5001 node --test --test-concurrency=1 functions/test/public-profile.integration.test.cjs\"",
     "test": "test_dir=$(mktemp -d) && tsc src/lib/categories.ts src/lib/discovery.ts src/lib/event-data.ts --module commonjs --target ES2020 --skipLibCheck --outDir \"$test_dir\" && CATEGORY_TEST_BUILD=\"$test_dir\" node --test tests/categories.test.cjs tests/category-navigation.test.cjs tests/category-taxonomy.test.cjs tests/discovery.test.cjs tests/event-data.test.cjs tests/restoration.test.cjs tests/selectors.test.cjs tests/usability.test.cjs; result=$?; if [ -n \"$test_dir\" ]; then rm -rf \"$test_dir\"; fi; exit $result",
     "test:rules": "firebase emulators:exec --project demo-yardsale-hub --only firestore,storage \"node --test --test-concurrency=1 tests/firestore.rules.test.cjs tests/firebase-config.rules.test.cjs tests/public-profile.rules.test.cjs tests/storage.rules.test.cjs tests/event-write-freeze.rules.test.cjs\""
   },

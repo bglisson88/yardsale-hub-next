@@ -47,6 +47,9 @@ jobs:
       - name: Test Functions public profile
         run: npm --prefix functions run test:public-profile
 
+      - name: Test Functions integration with emulators
+        run: npm run test:functions:integration
+
       - name: Type-check
         run: npm run type-check
 
