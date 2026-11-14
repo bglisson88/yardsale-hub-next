@@ -41,6 +41,12 @@ jobs:
       - name: Build Functions
         run: npm run build:functions
 
+      - name: Test Functions username helpers
+        run: npm --prefix functions run test:username
+
+      - name: Test Functions public profile
+        run: npm --prefix functions run test:public-profile
+
       - name: Type-check
         run: npm run type-check
 
