@@ -74,7 +74,12 @@ function client() {
   connectFunctionsEmulator(functions, '127.0.0.1', 5001);
   const firestore = getFirestore(app);
   connectFirestoreEmulator(firestore, '127.0.0.1', 8080);
-  return { auth, firestore, register: httpsCallable(functions, 'registerPublicProfile') };
+  return {
+    auth,
+    firestore,
+    register: httpsCallable(functions, 'registerPublicProfile'),
+    rename: httpsCallable(functions, 'renameUsername'),
+  };
 }
 
 async function authenticatedUser() {
@@ -333,5 +338,189 @@ test('conflicting claims and inconsistent records fail without repairs or partia
       scenario === 'conflicting-claim' ? 'already-exists' : 'failed-precondition',
     );
     assertUnchanged(beforeSnapshots, await snapshots(allRefs));
+  }
+});
+
+test('rename requires authentication and rejects forged identity and timestamps', async () => {
+  const anonymous = client();
+  await assertCallableError(anonymous.rename({ username: uniqueName() }), 'unauthenticated');
+  const user = await authenticatedUser();
+  const username = uniqueName();
+  const { refs } = await fixture(user, username);
+  await user.register({ username });
+  const requested = uniqueName();
+  const allRefs = [...Object.values(refs), reference('usernameClaims', requested)];
+  const beforeSnapshots = await snapshots(allRefs);
+  for (const extra of [
+    { uid: 'forged' },
+    { lastRenamedAt: '2020-01-01' },
+    { memberSince: '2020-01-01' },
+    { displayName: 'Forged' },
+  ]) {
+    await assertCallableError(user.rename({ username: requested, ...extra }), 'invalid-argument');
+  }
+  assertUnchanged(beforeSnapshots, await snapshots(allRefs));
+});
+
+test('first rename is immediate, preserves fields, and same-name retries are idempotent', async () => {
+  const user = await authenticatedUser();
+  const original = uniqueName();
+  const requested = uniqueName();
+  const { refs } = await fixture(user, original);
+  const requestedClaim = reference('usernameClaims', requested);
+  const reserved = reference('reservedUsernames', requested);
+  await user.register({ username: original });
+  await refs.profile.update({ photoURL: 'https://example.test/approved-photo.jpg' });
+  const allRefs = [...Object.values(refs), requestedClaim];
+  const registered = await snapshots(allRefs);
+
+  assert.deepEqual((await user.rename({ username: original.toUpperCase() })).data, { username: original });
+  assertUnchanged(registered, await snapshots(allRefs));
+  assert.deepEqual((await user.rename({ username: requested.toUpperCase() })).data, { username: requested });
+  const [privateAfter, profileAfter, oldClaim, stateAfter, newClaim] = await snapshots(allRefs);
+  assertUnchanged([registered[0]], [privateAfter]);
+  assert.deepEqual(profileAfter.data(), { ...registered[1].data(), username: requested });
+  assert.equal(oldClaim.exists, false);
+  assert.deepEqual(newClaim.data(), { uid: user.uid });
+  assert.ok(stateAfter.get('lastRenamedAt') instanceof Timestamp);
+
+  await reserved.set({ reserved: true });
+  const afterRename = await snapshots([...allRefs, reserved]);
+  assert.deepEqual((await user.rename({ username: requested })).data, { username: requested });
+  assertUnchanged(afterRename, await snapshots([...allRefs, reserved]));
+
+  const third = uniqueName();
+  const thirdClaim = reference('usernameClaims', third);
+  const beforeRejected = await snapshots([...allRefs, reserved, thirdClaim]);
+  await assertCallableError(user.rename({ username: third }), 'failed-precondition');
+  assertUnchanged(beforeRejected, await snapshots([...allRefs, reserved, thirdClaim]));
+});
+
+test('rename cooldown rejects recent changes and allows changes after 30 days', async () => {
+  const user = await authenticatedUser();
+  const original = uniqueName();
+  const requested = uniqueName();
+  const { refs } = await fixture(user, original);
+  const requestedClaim = reference('usernameClaims', requested);
+  await user.register({ username: original });
+  const day = 24 * 60 * 60 * 1000;
+  await refs.state.update({ lastRenamedAt: Timestamp.fromMillis(Date.now() - 29 * day) });
+  const allRefs = [...Object.values(refs), requestedClaim];
+  const beforeSnapshots = await snapshots(allRefs);
+  await assertCallableError(user.rename({ username: requested }), 'failed-precondition');
+  assertUnchanged(beforeSnapshots, await snapshots(allRefs));
+
+  await refs.state.update({ lastRenamedAt: Timestamp.fromMillis(Date.now() - 31 * day) });
+  assert.deepEqual((await user.rename({ username: requested })).data, { username: requested });
+  assert.equal((await refs.claim.get()).exists, false);
+  assert.deepEqual((await requestedClaim.get()).data(), { uid: user.uid });
+});
+
+test('rename rejects reserved and claimed usernames without changing records', async () => {
+  const user = await authenticatedUser();
+  const other = await authenticatedUser();
+  const original = uniqueName();
+  const claimed = uniqueName();
+  const reservedName = uniqueName();
+  const { refs } = await fixture(user, original);
+  const { refs: otherRefs } = await fixture(other, claimed);
+  const reservedClaim = reference('usernameClaims', reservedName);
+  const reserved = reference('reservedUsernames', reservedName);
+  await user.register({ username: original });
+  await other.register({ username: claimed });
+  await reserved.set({ reserved: true });
+  const allRefs = [...Object.values(refs), ...Object.values(otherRefs), reservedClaim, reserved];
+  const beforeSnapshots = await snapshots(allRefs);
+
+  await assertCallableError(user.rename({ username: 'ADMIN' }), 'already-exists');
+  await assertCallableError(user.rename({ username: reservedName }), 'already-exists');
+  await assertCallableError(user.rename({ username: claimed.toUpperCase() }), 'already-exists');
+  assertUnchanged(beforeSnapshots, await snapshots(allRefs));
+});
+
+test('rename fails closed on corrupt ownership, profile, and cooldown state', async () => {
+  for (const scenario of [
+    'missing-profile', 'invalid-current-name', 'missing-current-claim',
+    'other-current-owner', 'malformed-current-claim', 'missing-state',
+    'malformed-state', 'future-state', 'self-owned-target', 'malformed-target',
+  ]) {
+    const user = await authenticatedUser();
+    const original = uniqueName();
+    const requested = uniqueName();
+    const { refs } = await fixture(user, original);
+    const requestedClaim = reference('usernameClaims', requested);
+    await user.register({ username: original });
+    if (scenario === 'missing-profile') await refs.profile.delete();
+    if (scenario === 'invalid-current-name') await refs.profile.update({ username: 'invalid/name' });
+    if (scenario === 'missing-current-claim') await refs.claim.delete();
+    if (scenario === 'other-current-owner') await refs.claim.set({ uid: 'another-user' });
+    if (scenario === 'malformed-current-claim') await refs.claim.set({ uid: user.uid, extra: true });
+    if (scenario === 'missing-state') await refs.state.delete();
+    if (scenario === 'malformed-state') await refs.state.set({ lastRenamedAt: 'invalid' });
+    if (scenario === 'future-state') {
+      await refs.state.set({ lastRenamedAt: Timestamp.fromMillis(Date.now() + 86400000) });
+    }
+    if (scenario === 'self-owned-target') await requestedClaim.set({ uid: user.uid });
+    if (scenario === 'malformed-target') await requestedClaim.set({ unexpected: true });
+    const allRefs = [...Object.values(refs), requestedClaim];
+    const beforeSnapshots = await snapshots(allRefs);
+
+    await assertCallableError(user.rename({ username: requested }), 'failed-precondition');
+    assertUnchanged(beforeSnapshots, await snapshots(allRefs));
+  }
+});
+
+test('concurrent different renames allow at most one change and leave no partial claim', async () => {
+  const user = await authenticatedUser();
+  const original = uniqueName();
+  const first = uniqueName();
+  const second = uniqueName();
+  const { refs } = await fixture(user, original);
+  const firstClaim = reference('usernameClaims', first);
+  const secondClaim = reference('usernameClaims', second);
+  await user.register({ username: original });
+  const results = await Promise.allSettled([
+    user.rename({ username: first }),
+    user.rename({ username: second }),
+  ]);
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+  assert.equal(results.find(result => result.status === 'rejected').reason.code, 'functions/failed-precondition');
+  const winner = results[0].status === 'fulfilled' ? first : second;
+  const winnerClaim = results[0].status === 'fulfilled' ? firstClaim : secondClaim;
+  const loserClaim = results[0].status === 'fulfilled' ? secondClaim : firstClaim;
+  assert.equal((await refs.profile.get()).get('username'), winner);
+  assert.equal((await refs.claim.get()).exists, false);
+  assert.deepEqual((await winnerClaim.get()).data(), { uid: user.uid });
+  assert.equal((await loserClaim.get()).exists, false);
+  assert.ok((await refs.state.get()).get('lastRenamedAt') instanceof Timestamp);
+});
+
+test('registration and rename contend for one canonical claim without partial changes', async () => {
+  const renamer = await authenticatedUser();
+  const registrant = await authenticatedUser();
+  assert.notEqual(renamer.uid, registrant.uid);
+  const original = uniqueName();
+  const requested = uniqueName();
+  const { refs: oldRefs } = await fixture(renamer, original);
+  const { refs: newRefs } = await fixture(registrant, requested);
+  await renamer.register({ username: original });
+  const results = await Promise.allSettled([
+    renamer.rename({ username: requested }),
+    registrant.register({ username: requested.toUpperCase() }),
+  ]);
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+  assert.equal(results.find(result => result.status === 'rejected').reason.code, 'functions/already-exists');
+  if (results[0].status === 'fulfilled') {
+    assert.deepEqual((await newRefs.claim.get()).data(), { uid: renamer.uid });
+    assert.equal((await oldRefs.claim.get()).exists, false);
+    assert.equal((await oldRefs.profile.get()).get('username'), requested);
+    assert.equal((await newRefs.profile.get()).exists, false);
+    assert.equal((await newRefs.state.get()).exists, false);
+  } else {
+    assert.deepEqual((await newRefs.claim.get()).data(), { uid: registrant.uid });
+    assert.deepEqual((await oldRefs.claim.get()).data(), { uid: renamer.uid });
+    assert.equal((await oldRefs.profile.get()).get('username'), original);
+    assert.deepEqual((await oldRefs.state.get()).data(), { lastRenamedAt: null });
+    assert.equal((await newRefs.profile.get()).get('username'), requested);
   }
 });

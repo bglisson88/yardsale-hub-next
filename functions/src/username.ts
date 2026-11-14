@@ -35,6 +35,23 @@ export function isReservedUsername(value: unknown): boolean {
   return RESERVED_USERNAMES.has(canonicalizeUsername(value));
 }
 
+export function cooldownDateFromTimestamp(seconds: number, nanoseconds: number): Date {
+  if (
+    !Number.isSafeInteger(seconds) ||
+    !Number.isInteger(nanoseconds) ||
+    nanoseconds < 0 ||
+    nanoseconds >= 1_000_000_000
+  ) {
+    throw new RangeError('Timestamp must have valid seconds and nanoseconds.');
+  }
+  const milliseconds = seconds * 1000 + Math.ceil(nanoseconds / 1_000_000);
+  const date = new Date(milliseconds);
+  if (!Number.isSafeInteger(milliseconds) || !Number.isFinite(date.getTime())) {
+    throw new RangeError('Timestamp must be a valid Date.');
+  }
+  return date;
+}
+
 export function canRenameUsername(
   lastRenamedAt: Date | null,
   now: Date,

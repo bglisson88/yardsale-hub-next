@@ -3,6 +3,7 @@ const { test } = require('node:test');
 const {
   canRenameUsername,
   canonicalizeUsername,
+  cooldownDateFromTimestamp,
   isReservedUsername,
   USERNAME_RENAME_COOLDOWN_MS,
 } = require('../lib/username.js');
@@ -117,4 +118,32 @@ test('rejects invalid current or previous rename timestamps', () => {
     () => canRenameUsername('2026-01-01T00:00:00.000Z', validTime),
     RangeError,
   );
+});
+
+test('rounds fractional Firestore timestamps upward for cooldown comparisons', () => {
+  const seconds = 1767225600;
+  const exact = cooldownDateFromTimestamp(seconds, 0);
+  const fractional = cooldownDateFromTimestamp(seconds, 500001);
+  const now = new Date(exact.getTime() + USERNAME_RENAME_COOLDOWN_MS);
+
+  assert.equal(exact.getTime(), seconds * 1000);
+  assert.equal(fractional.getTime(), seconds * 1000 + 1);
+  assert.equal(canRenameUsername(exact, now), true);
+  assert.equal(canRenameUsername(fractional, now), false);
+  assert.equal(canRenameUsername(fractional, new Date(now.getTime() + 1)), true);
+  assert.equal(canRenameUsername(exact, new Date(now.getTime() - 1)), false);
+  assert.equal(cooldownDateFromTimestamp(seconds, 999999999).getTime(), seconds * 1000 + 1000);
+});
+
+test('rejects malformed or out-of-range timestamp components', () => {
+  for (const [seconds, nanoseconds] of [
+    [NaN, 0],
+    [1.5, 0],
+    [0, -1],
+    [0, 1000000000],
+    [0, 1.5],
+    [Number.MAX_SAFE_INTEGER, 0],
+  ]) {
+    assert.throws(() => cooldownDateFromTimestamp(seconds, nanoseconds), RangeError);
+  }
 });

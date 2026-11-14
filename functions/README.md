@@ -6,6 +6,9 @@ dependencies with `npm --prefix functions ci`.
 The exported `registerPublicProfile` callable registers an authenticated
 user's public profile and username claim. It obtains the member-since date
 from Firebase Auth and does not publish a profile photo.
+The `renameUsername` callable atomically changes the username and claim.
+The first rename is immediate; later changes require 30 full days. Retrying
+the current username does not change the cooldown.
 
 From the repository root:
 
@@ -30,6 +33,8 @@ overlap is nondeterministic. Tests do not inject a deterministic failure
 during a transaction; that coverage is deferred. Firebase Auth and Firestore
 do not share a transaction: an account deleted after the Auth lookup may
 leave an orphaned profile. Both limitations require separate follow-up.
+Registration retries after a rename or future profile-photo publication require
+a separate compatibility review; registration behavior is unchanged.
 
 Both `firebase.json` and `firebase.event-freeze.json` retain their existing
 Firestore and Storage rules selections. The rules suite exercises both.

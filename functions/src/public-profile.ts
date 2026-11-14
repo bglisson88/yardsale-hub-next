@@ -1,7 +1,13 @@
 import { getAuth } from 'firebase-admin/auth';
-import { FieldPath, getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { FieldPath, FieldValue, getFirestore, Timestamp } from 'firebase-admin/firestore';
+import * as logger from 'firebase-functions/logger';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
-import { canonicalizeUsername, isReservedUsername } from './username';
+import {
+  canRenameUsername,
+  canonicalizeUsername,
+  cooldownDateFromTimestamp,
+  isReservedUsername,
+} from './username';
 
 const INVALID_REQUEST_MESSAGE = 'Provide a valid username.';
 const UNAVAILABLE_USERNAME_MESSAGE = 'That username is unavailable.';
@@ -71,6 +77,25 @@ function isValidUsernameState(value: unknown): boolean {
 
 function throwInconsistentProfile(): never {
   throw new HttpsError('failed-precondition', INCONSISTENT_PROFILE_MESSAGE);
+}
+
+function throwRenameBackendError(error: unknown): never {
+  if (error instanceof HttpsError) throw error;
+  const code = isRecord(error) ? error.code : undefined;
+  if (code === 4 || code === 'deadline-exceeded') {
+    throw new HttpsError('deadline-exceeded', 'The username change timed out. Please try again.');
+  }
+  if (code === 10 || code === 'aborted') {
+    throw new HttpsError('aborted', 'The username change was interrupted. Please try again.');
+  }
+  if (code === 14 || code === 'unavailable' || code === 'auth/network-request-failed') {
+    throw new HttpsError('unavailable', 'The username service is unavailable. Please try again.');
+  }
+  if (code === 8 || code === 'resource-exhausted') {
+    throw new HttpsError('resource-exhausted', 'The username service is busy. Please try again.');
+  }
+  logger.error('Username change failed due to an internal backend error.');
+  throw new HttpsError('internal', 'Unable to change your username. Please try again.');
 }
 
 export const registerPublicProfile = onCall(async request => {
@@ -191,4 +216,129 @@ export const registerPublicProfile = onCall(async request => {
 
     return { username };
   });
+});
+
+export const renameUsername = onCall(async request => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError('unauthenticated', 'Sign in to change your username.');
+  }
+
+  const username = registrationUsername(request.data);
+  let authUser;
+  try {
+    authUser = await getAuth().getUser(uid);
+  } catch (error) {
+    if (isRecord(error) && error.code === 'auth/user-not-found') {
+      throw new HttpsError('unauthenticated', 'Your account is unavailable.');
+    }
+    throwRenameBackendError(error);
+  }
+  if (authUser.disabled) {
+    throw new HttpsError('unauthenticated', 'Your account is unavailable.');
+  }
+
+  let firestore;
+  try {
+    firestore = getFirestore();
+  } catch (error) {
+    throwRenameBackendError(error);
+  }
+
+  return Promise.resolve().then(() => firestore.runTransaction(async transaction => {
+    const profileRef = firestore.collection('publicProfiles').doc(uid);
+    const stateRef = firestore.collection('usernameState').doc(uid);
+    const requestedClaimRef = firestore.collection('usernameClaims').doc(username);
+    const reservedRef = firestore.collection('reservedUsernames').doc(username);
+    const [profileSnapshot, stateSnapshot, requestedClaimSnapshot, reservedSnapshot] =
+      await Promise.all([
+        transaction.get(profileRef),
+        transaction.get(stateRef),
+        transaction.get(requestedClaimRef),
+        transaction.get(reservedRef),
+      ]);
+    const profile: unknown = profileSnapshot.data();
+    const state: unknown = stateSnapshot.data();
+    if (
+      !profileSnapshot.exists ||
+      !isRecord(profile) ||
+      !hasOnlyKeys(profile, ['username', 'displayName', 'photoURL', 'memberSince']) ||
+      !isNonemptyString(profile.displayName) ||
+      !(profile.photoURL === null || isNonemptyString(profile.photoURL)) ||
+      !(profile.memberSince instanceof Timestamp) ||
+      !stateSnapshot.exists ||
+      !isValidUsernameState(state) ||
+      !isRecord(state)
+    ) {
+      throwInconsistentProfile();
+    }
+
+    let currentUsername: string;
+    try {
+      currentUsername = canonicalizeUsername(profile.username);
+    } catch (error) {
+      if (error instanceof TypeError) throwInconsistentProfile();
+      throw error;
+    }
+    if (currentUsername !== profile.username) throwInconsistentProfile();
+
+    const currentClaimRef = firestore.collection('usernameClaims').doc(currentUsername);
+    const currentClaimSnapshot = currentUsername === username
+      ? requestedClaimSnapshot
+      : await transaction.get(currentClaimRef);
+    const currentClaim: unknown = currentClaimSnapshot.data();
+    if (
+      !currentClaimSnapshot.exists ||
+      !isRecord(currentClaim) ||
+      !hasOnlyKeys(currentClaim, ['uid']) ||
+      currentClaim.uid !== uid
+    ) {
+      throwInconsistentProfile();
+    }
+
+    const now = new Date();
+    const lastRenamedAt = state.lastRenamedAt;
+    let lastRenamedDate: Date | null = null;
+    if (lastRenamedAt instanceof Timestamp) {
+      try {
+        lastRenamedDate = cooldownDateFromTimestamp(
+          lastRenamedAt.seconds,
+          lastRenamedAt.nanoseconds,
+        );
+      } catch (error) {
+        if (error instanceof RangeError) throwInconsistentProfile();
+        throw error;
+      }
+      if (lastRenamedDate.getTime() > now.getTime()) throwInconsistentProfile();
+    }
+
+    if (currentUsername === username) return { username };
+    if (isReservedUsername(username) || reservedSnapshot.exists) {
+      throw new HttpsError('already-exists', UNAVAILABLE_USERNAME_MESSAGE);
+    }
+    if (requestedClaimSnapshot.exists) {
+      const requestedClaim: unknown = requestedClaimSnapshot.data();
+      if (
+        isRecord(requestedClaim) &&
+        hasOnlyKeys(requestedClaim, ['uid']) &&
+        isNonemptyString(requestedClaim.uid) &&
+        requestedClaim.uid !== uid
+      ) {
+        throw new HttpsError('already-exists', UNAVAILABLE_USERNAME_MESSAGE);
+      }
+      throwInconsistentProfile();
+    }
+    if (!canRenameUsername(lastRenamedDate, now)) {
+      throw new HttpsError(
+        'failed-precondition',
+        'You can change your username once every 30 days.',
+      );
+    }
+
+    transaction.delete(currentClaimRef);
+    transaction.create(requestedClaimRef, { uid });
+    transaction.update(profileRef, { username });
+    transaction.update(stateRef, { lastRenamedAt: FieldValue.serverTimestamp() });
+    return { username };
+  })).catch(throwRenameBackendError);
 });
