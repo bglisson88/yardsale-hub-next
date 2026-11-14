@@ -12,8 +12,11 @@ const {
   doc,
   getDoc,
   getDocs,
+  query,
   setDoc,
+  Timestamp,
   updateDoc,
+  where,
 } = require('firebase/firestore');
 const {
   deleteObject,
@@ -87,28 +90,68 @@ async function clearStorage() {
   });
 }
 
-test('Firestore event writes are frozen while public event reads remain available', async () => {
-  await seedDocument('yardSaleEvents/existing', {
-    userId: 'alice',
+test('event freeze denies public listing, preserves safe gets and owner-scoped reads, and denies writes', async () => {
+  const validEvent = {
+    userId: 'bob',
     title: 'Public sale',
+    description: 'Saturday sale',
+    location: 'Nederland',
+    locationVisibility: 'general',
+    startDate: Timestamp.fromDate(new Date('2026-11-10T15:00:00Z')),
+    endDate: Timestamp.fromDate(new Date('2026-11-10T18:00:00Z')),
+    photoURL: null,
+    createdAt: Timestamp.fromDate(new Date('2026-11-01T12:00:00Z')),
+    updatedAt: Timestamp.fromDate(new Date('2026-11-01T12:00:00Z')),
+    itemCount: 0,
+  };
+  await seedDocument('yardSaleEvents/existing', {
+    ...validEvent,
+    userId: 'alice',
+    address: '12 Main Street',
+    latitude: 29.99,
+    longitude: -94.01,
+    unexpectedLegacyField: 'legacy private value',
   });
+  await seedDocument('yardSaleEvents/valid', validEvent);
+  await seedDocument('yardSaleEvents/bob-event', validEvent);
   await seedDocument('eventPrivate/existing', {
     userId: 'alice',
     address: '12 Main Street',
   });
 
   const anonymous = database();
+  const alice = database('alice');
+  const bob = database('bob');
   assert.equal((await assertSucceeds(getDoc(
-    doc(anonymous, 'yardSaleEvents', 'existing'),
+    doc(anonymous, 'yardSaleEvents', 'valid'),
   ))).data().title, 'Public sale');
-  assert.equal((await assertSucceeds(getDocs(
-    collection(anonymous, 'yardSaleEvents'),
-  ))).size, 1);
+  await assertFails(getDoc(doc(anonymous, 'yardSaleEvents', 'existing')));
+  const ownerLegacyEvent = await assertSucceeds(getDoc(
+    doc(alice, 'yardSaleEvents', 'existing'),
+  ));
+  assert.equal(ownerLegacyEvent.data().address, '12 Main Street');
+  assert.equal(ownerLegacyEvent.data().latitude, 29.99);
+  assert.equal(ownerLegacyEvent.data().longitude, -94.01);
+  assert.equal(ownerLegacyEvent.data().unexpectedLegacyField, 'legacy private value');
+  await assertFails(getDocs(collection(anonymous, 'yardSaleEvents')));
+  await assertFails(getDocs(collection(alice, 'yardSaleEvents')));
+  await assertFails(getDocs(query(
+    collection(alice, 'yardSaleEvents'),
+    where('userId', '==', 'bob'),
+  )));
+  for (const db of [anonymous, alice, bob]) {
+    await assertFails(getDoc(doc(db, 'eventPrivate', 'existing')));
+  }
+  const ownerEvents = await assertSucceeds(getDocs(query(
+    collection(alice, 'yardSaleEvents'),
+    where('userId', '==', 'alice'),
+  )));
+  assert.deepEqual(ownerEvents.docs.map(event => event.id), ['existing']);
 
-  for (const db of [anonymous, database('alice'), database('bob')]) {
+  for (const db of [anonymous, alice, bob]) {
     await assertFails(setDoc(doc(db, 'yardSaleEvents', 'new'), { userId: 'alice' }));
-    await assertFails(updateDoc(doc(db, 'yardSaleEvents', 'existing'), { title: 'Changed' }));
-    await assertFails(deleteDoc(doc(db, 'yardSaleEvents', 'existing')));
+    await assertFails(updateDoc(doc(db, 'yardSaleEvents', 'valid'), { title: 'Changed' }));
+    await assertFails(deleteDoc(doc(db, 'yardSaleEvents', 'valid')));
 
     await assertFails(setDoc(doc(db, 'eventPrivate', 'new'), {
       userId: 'alice',

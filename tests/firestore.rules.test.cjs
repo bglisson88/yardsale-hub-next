@@ -446,10 +446,15 @@ test('general event creates and public browse reads exclude precise location fie
   assert.equal('latitude' in result.data(), false);
   assert.equal('longitude' in result.data(), false);
 
-  await assertSucceeds(getDocs(query(
+  await assertFails(getDocs(query(
     collection(anonymousDatabase(), 'yardSaleEvents'),
     where('startDate', '>=', Timestamp.now()),
   )));
+  const ownerEvents = await assertSucceeds(getDocs(query(
+    collection(alice, 'yardSaleEvents'),
+    where('userId', '==', 'alice'),
+  )));
+  assert.deepEqual(ownerEvents.docs.map(event => event.id), [eventRef.id]);
 });
 
 test('general event can retain a private address in an atomic batch', async () => {
@@ -595,7 +600,26 @@ test('invalid event time ranges are rejected by rules', async () => {
   ));
 });
 
-test('legacy private fields remain visible in public queries until migration', async () => {
+test('event listing is restricted to authenticated owner-scoped queries', async () => {
+  await seed('yardSaleEvents/alice-event', publicEvent('alice'));
+  await seed('yardSaleEvents/bob-event', publicEvent('bob'));
+
+  const alice = database('alice');
+  await assertFails(getDocs(collection(anonymousDatabase(), 'yardSaleEvents')));
+  await assertFails(getDocs(collection(alice, 'yardSaleEvents')));
+  await assertFails(getDocs(query(
+    collection(alice, 'yardSaleEvents'),
+    where('userId', '==', 'bob'),
+  )));
+
+  const ownerEvents = await assertSucceeds(getDocs(query(
+    collection(alice, 'yardSaleEvents'),
+    where('userId', '==', 'alice'),
+  )));
+  assert.deepEqual(ownerEvents.docs.map(event => event.id), ['alice-event']);
+});
+
+test('legacy private fields cannot be listed anonymously but remain owner-readable', async () => {
   await seed('yardSaleEvents/legacy', {
     ...publicEvent('alice', {
       locationVisibility: 'exact',
@@ -603,14 +627,21 @@ test('legacy private fields remain visible in public queries until migration', a
       longitude: -94.01,
     }),
     address: '12 Main Street',
+    privateNote: 'Unexpected legacy field',
   });
   await assertFails(getDoc(doc(anonymousDatabase(), 'yardSaleEvents', 'legacy')));
-  await assertSucceeds(getDoc(doc(database('alice'), 'yardSaleEvents', 'legacy')));
+  const owner = database('alice');
+  const ownerDocument = await assertSucceeds(getDoc(doc(owner, 'yardSaleEvents', 'legacy')));
+  assert.equal(ownerDocument.data().address, '12 Main Street');
+  assert.equal(ownerDocument.data().latitude, 29.99);
+  assert.equal(ownerDocument.data().longitude, -94.01);
+  assert.equal(ownerDocument.data().privateNote, 'Unexpected legacy field');
 
-  const publicQuery = await getDocs(collection(anonymousDatabase(), 'yardSaleEvents'));
-  const legacyDocument = publicQuery.docs.find(snapshot => snapshot.id === 'legacy');
-  assert.ok(legacyDocument);
-  assert.equal(legacyDocument.data().address, '12 Main Street');
-  assert.equal(legacyDocument.data().latitude, 29.99);
-  assert.equal(legacyDocument.data().longitude, -94.01);
+  await assertFails(getDocs(collection(anonymousDatabase(), 'yardSaleEvents')));
+  const ownerEvents = await assertSucceeds(getDocs(query(
+    collection(owner, 'yardSaleEvents'),
+    where('userId', '==', 'alice'),
+  )));
+  assert.equal(ownerEvents.size, 1);
+  assert.equal(ownerEvents.docs[0].data().address, '12 Main Street');
 });

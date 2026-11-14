@@ -205,13 +205,9 @@ service cloud.firestore {
     }
 
     match /yardSaleEvents/{eventId} {
-      // Older records without locationVisibility must be migrated before
-      // public queries are enabled. Firestore cannot use per-document rule
-      // checks as a query filter, so public listing reads require migration
-      // to remove private fields from every document first.
       allow get: if validEvent(resource.data)
         || owns(resource.data.userId);
-      allow list: if true;
+      allow list: if owns(resource.data.userId);
 
       allow create: if signedIn()
         && validEvent(request.resource.data)
