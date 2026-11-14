@@ -13,9 +13,11 @@ const {
   doc,
   getDoc,
   getDocs,
+  query,
   setDoc,
   Timestamp,
   updateDoc,
+  where,
 } = require('firebase/firestore');
 
 const PROJECT_ID = 'demo-yardsale-hub';
@@ -106,8 +108,9 @@ for (const { file, eventWritesAllowed } of SUPPORTED_CONFIGS) {
         ]);
       });
 
+      const aliceUid = 'alice';
       const anonymous = database(environment);
-      const alice = database(environment, 'alice');
+      const alice = database(environment, aliceUid);
       const bob = database(environment, 'bob');
       const profileRef = doc(anonymous, 'publicProfiles', 'alice');
       const claimRef = doc(anonymous, 'usernameClaims', 'alice');
@@ -190,9 +193,15 @@ for (const { file, eventWritesAllowed } of SUPPORTED_CONFIGS) {
       assert.equal((await assertSucceeds(getDoc(
         doc(anonymous, 'yardSaleEvents', 'sale'),
       ))).data().title, 'Community sale');
-      assert.equal((await assertSucceeds(getDocs(
+      await assertFails(getDocs(
         collection(anonymous, 'yardSaleEvents'),
-      ))).size, 1);
+      ));
+      const ownerEvents = await assertSucceeds(getDocs(query(
+        collection(alice, 'yardSaleEvents'),
+        where('userId', '==', aliceUid),
+      )));
+      assert.equal(ownerEvents.size, 1);
+      assert.equal(ownerEvents.docs[0].id, 'sale');
       const updateEvent = updateDoc(eventRef, {
         title: 'Updated sale',
         updatedAt: UPDATED_AT,
