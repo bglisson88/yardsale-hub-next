@@ -78,6 +78,7 @@ for (const { file, eventWritesAllowed } of SUPPORTED_CONFIGS) {
     });
 
     try {
+      await environment.clearFirestore();
       await environment.withSecurityRulesDisabled(async context => {
         const db = context.firestore();
         await Promise.all([
