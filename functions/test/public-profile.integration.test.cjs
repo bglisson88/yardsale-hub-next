@@ -70,7 +70,7 @@ function client() {
   connectAuthEmulator(auth, `http://${ENDPOINTS.FIREBASE_AUTH_EMULATOR_HOST}`, {
     disableWarnings: true,
   });
-  const functions = getFunctions(app, 'us-central1');
+  const functions = getFunctions(app, 'us-south1');
   connectFunctionsEmulator(functions, '127.0.0.1', 5001);
   const firestore = getFirestore(app);
   connectFirestoreEmulator(firestore, '127.0.0.1', 8080);

@@ -8,6 +8,7 @@ import {
   cooldownDateFromTimestamp,
   isReservedUsername,
 } from './username';
+import { profileCallableOptions } from './runtime-options';
 
 const INVALID_REQUEST_MESSAGE = 'Provide a valid username.';
 const UNAVAILABLE_USERNAME_MESSAGE = 'That username is unavailable.';
@@ -119,7 +120,7 @@ function throwRegistrationBackendError(error: unknown): never {
   throw new HttpsError('internal', 'Unable to register a public profile. Please try again.');
 }
 
-export const registerPublicProfile = onCall(async request => {
+export const registerPublicProfile = onCall(profileCallableOptions, async request => {
   const uid = request.auth?.uid;
   if (!uid) {
     throw new HttpsError('unauthenticated', 'Sign in to register a public profile.');
@@ -271,7 +272,7 @@ export const registerPublicProfile = onCall(async request => {
   })).catch(throwRegistrationBackendError);
 });
 
-export const renameUsername = onCall(async request => {
+export const renameUsername = onCall(profileCallableOptions, async request => {
   const uid = request.auth?.uid;
   if (!uid) {
     throw new HttpsError('unauthenticated', 'Sign in to change your username.');

@@ -30,6 +30,58 @@ The `renameUsername` callable atomically changes the username and claim.
 The first rename is immediate; later changes require 30 full days. Retrying
 the current username does not change the cooldown.
 
+## Profile callable runtime configuration
+
+`registerPublicProfile` and `renameUsername` share validated per-callable
+options from `src/runtime-options.ts`; no global Functions defaults are set.
+The selected Firebase project (`GCLOUD_PROJECT`) must match
+`YSH_EXPECTED_PROJECT_ID`. The builder rejects unknown modes, projects,
+regions, service accounts, missing values, unsupported memory, invalid
+limits, and inconsistent instance bounds. TypeScript compilation does not
+load dotenv or run this validation; Firebase CLI Functions discovery imports
+the compiled entry point and fails before deployment if configuration is
+missing or invalid.
+
+The intentionally tracked `functions/.env.yardsale-hub-staging` contains only
+non-secret staging settings. It pins `yardsale-hub-staging` to `us-south1`,
+the dedicated staging runtime service account, and the reviewed per-callable
+limits (`maxInstances: 2`, `concurrency: 10`, `timeoutSeconds: 30`,
+`memory: 256MiB`, `minInstances: 0`). There is no shared staging `.env` and
+no production dotenv configuration. Production must receive its own reviewed
+project, region, and runtime identity before these callables can be deployed
+there; the code fails closed for any unconfigured project.
+
+The tracked `functions/.env.demo-yardsale-hub` is emulator-only configuration.
+It selects `us-south1` and the same bounded limits, has no service-account
+setting, and is accepted only with project `demo-yardsale-hub`. The emulator
+integration test also selects `us-south1` in its Functions client. The
+Firebase CLI loads `.env.<project-id>` during Functions discovery and
+emulation; `FUNCTIONS_EMULATOR` is set for the emulator runtime but is not
+relied on for discovery. Direct unit tests pass configuration to the pure
+builder and set demo configuration before importing the callables.
+
+### Staging deployment prerequisites
+
+Before any staging deployment, verify the selected project and staging-only
+IAM configuration. The runtime account needs only the confirmed Cloud
+Datastore User and Firebase Authentication Viewer roles for Firestore and
+Auth operations. The deployer identity separately needs the
+Firebase/Cloud Functions deployment permissions and
+`iam.serviceAccounts.actAs` on the selected runtime account; do not grant
+deployment permissions to the runtime account. No service-account key is
+used or required.
+
+After approval, target only the intended project and resource:
+
+```bash
+firebase deploy --config firebase.json --project yardsale-hub-staging --only functions
+```
+
+This is not authorization to deploy; verify the target and deployment
+permissions immediately before running it. Do not use an unrestricted deploy.
+Billing budget notifications at 50%, 90%, and 100% are alerts, **not hard
+spending caps**; they do not stop Functions or guarantee a maximum bill.
+
 From the repository root:
 
 ```bash

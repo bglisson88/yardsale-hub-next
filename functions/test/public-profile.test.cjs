@@ -1,5 +1,17 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
+
+process.env.GCLOUD_PROJECT = 'demo-yardsale-hub';
+process.env.YSH_EXPECTED_PROJECT_ID = 'demo-yardsale-hub';
+process.env.YSH_FUNCTIONS_MODE = 'emulator';
+process.env.YSH_FUNCTIONS_REGION = 'us-south1';
+process.env.YSH_FUNCTIONS_MAX_INSTANCES = '2';
+process.env.YSH_FUNCTIONS_CONCURRENCY = '10';
+process.env.YSH_FUNCTIONS_TIMEOUT_SECONDS = '30';
+process.env.YSH_FUNCTIONS_MEMORY = '256MiB';
+process.env.YSH_FUNCTIONS_MIN_INSTANCES = '0';
+delete process.env.YSH_FUNCTIONS_SERVICE_ACCOUNT;
+
 const adminAuth = require('firebase-admin/auth');
 const { FieldValue, Timestamp } = require('firebase-admin/firestore');
 const adminFirestore = require('firebase-admin/firestore');
@@ -7,6 +19,22 @@ const { HttpsError } = require('firebase-functions/v2/https');
 const { registerPublicProfile, renameUsername } = require('../lib/public-profile.js');
 const INCONSISTENT_PROFILE_MESSAGE =
   'Public profile data is inconsistent. Please contact support.';
+
+test('both profile callables use the validated emulator runtime options', () => {
+  for (const callable of [registerPublicProfile, renameUsername]) {
+    const options = callable.__endpoint;
+    assert.deepEqual(options.region, ['us-south1']);
+    assert.equal(options.maxInstances, 2);
+    assert.equal(options.concurrency, 10);
+    assert.equal(options.timeoutSeconds, 30);
+    assert.equal(options.availableMemoryMb, 256);
+    assert.equal(options.minInstances, 0);
+    assert.notEqual(
+      options.serviceAccountEmail,
+      'yardsale-hub-staging-backend@yardsale-hub-staging.iam.gserviceaccount.com',
+    );
+  }
+});
 
 function request(data, auth = { uid: 'user-123', token: {} }) {
   return { data, auth };
