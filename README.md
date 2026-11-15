@@ -303,6 +303,11 @@ If setup fails after the account is created, retry on the signup page. After
 leaving or signing out, sign in with the same account and return to
 `/auth/signup` to finish; do not create another account.
 
+Registered users can change their username from their profile using the
+`renameUsername` callable in `us-south1`. The callable enforces the 30-day
+cooldown; the next eligible date is unavailable because the current secure API
+does not expose the previous rename timestamp.
+
 ### Item detail preview verification
 
 Listing cards open `/items/[id]`, which subscribes to the existing `items`

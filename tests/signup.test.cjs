@@ -217,6 +217,11 @@ for (const status of ['ready', 'missing', 'error']) test(`profile page handles $
       return [states[index], value => { states[index] = typeof value === 'function' ? value(states[index]) : value; }];
     },
     useEffect(effect) { if (firstRender) effects.push(effect); },
+    useRef(initial) {
+      const index = cursor++;
+      if (!(index in states)) states[index] = { current: initial };
+      return states[index];
+    },
   };
   const imports = {
     react: hooks,
@@ -231,6 +236,7 @@ for (const status of ['ready', 'missing', 'error']) test(`profile page handles $
       },
     },
     '@/lib/firebase': { db: {} },
+    '@/lib/signup': require(`${process.env.CATEGORY_TEST_BUILD}/signup.js`),
     '@/hooks': { useAuthContext() {} },
     '@/store': { useAuthStore: () => ({
       user: { id: 'uid-1', displayName: 'Private Name', email: 'private@example.test', location: 'Nederland' },
@@ -265,7 +271,127 @@ for (const status of ['ready', 'missing', 'error']) test(`profile page handles $
   assert.deepEqual(reads, ['publicProfiles/uid-1']);
   assert.ok(find(node => node.type === 'dd' && node.props.children === 'Private Name'));
   assert.ok(find(node => node.type === 'dd' && node.props.children === 'private@example.test'));
-  if (status === 'ready') assert.ok(find(node => node.type === 'dd' && node.props.children === 'seller_1'));
+  if (status === 'ready') {
+    assert.ok(find(node => node.type === 'dd' && React.Children.toArray(node.props.children.props.children).includes('seller_1')));
+    assert.ok(find(node => node.type === 'button' && node.props.children === 'Edit Username'));
+  }
   if (status === 'missing') assert.ok(find(node => node.props?.href === '/auth/signup'));
   if (status === 'error') assert.ok(find(node => node.type === 'button' && node.props.children === 'Try again'));
 });
+
+for (const scenario of ['success', 'unavailable-name', 'cooldown', 'inconsistent', 'retry', 'invalid']) {
+  test(`profile username editing handles ${scenario}`, async () => {
+    const states = [], effects = [], calls = [];
+    let cursor = 0, tree, firstRender = true, attempts = 0, resolveRename;
+    const auth = { currentUser: { uid: 'uid-1' } };
+    const hooks = {
+      useState(initial) {
+        const index = cursor++;
+        if (!(index in states)) states[index] = initial;
+        return [states[index], value => { states[index] = typeof value === 'function' ? value(states[index]) : value; }];
+      },
+      useRef(initial) {
+        const index = cursor++;
+        if (!(index in states)) states[index] = { current: initial };
+        return states[index];
+      },
+      useEffect(effect) { if (firstRender) effects.push(effect); },
+    };
+    const imports = {
+      react: hooks,
+      'next/link': { __esModule: true, default: 'a' },
+      'next/navigation': { useRouter: () => ({ replace: () => assert.fail('unexpected redirect') }) },
+      'firebase/firestore': {
+        doc: (_, collection, uid) => `${collection}/${uid}`,
+        getDocFromServer: async ref => {
+          assert.equal(ref, 'publicProfiles/uid-1');
+          return { exists: () => true, data: () => ({ username: 'seller_1' }) };
+        },
+      },
+      'firebase/functions': {
+        httpsCallable: (client, name) => {
+          assert.equal(client, 'regional-functions');
+          assert.equal(name, 'renameUsername');
+          return async payload => {
+            calls.push({ ...payload });
+            attempts++;
+            if (scenario === 'unavailable-name' && attempts === 1) throw { code: 'functions/already-exists' };
+            if (scenario === 'cooldown') throw { code: 'functions/failed-precondition', message: 'You can change your username once every 30 days.' };
+            if (scenario === 'inconsistent') throw { code: 'functions/failed-precondition', message: 'Public profile data is inconsistent. Please contact support.' };
+            if (scenario === 'retry' && attempts === 1) throw { code: 'functions/unavailable' };
+            if (scenario === 'success') return new Promise(resolve => { resolveRename = () => resolve({ data: { username: 'new_name' } }); });
+            return { data: { username: payload.username } };
+          };
+        },
+      },
+      '@/lib/firebase': { db: {}, functions: 'regional-functions', auth },
+      '@/lib/signup': require(`${process.env.CATEGORY_TEST_BUILD}/signup.js`),
+      '@/hooks': { useAuthContext() {} },
+      '@/store': { useAuthStore: () => ({ user: { id: 'uid-1', displayName: 'Private Name', email: 'private@example.test' }, loading: false }) },
+      '@/components': { LoadingSpinner: () => null },
+      '@/components/Avatar': { Avatar: () => null },
+    };
+    const filename = path.join(__dirname, '../src/app/dashboard/profile/page.tsx');
+    const code = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
+    }).outputText;
+    const module = { exports: {} };
+    vm.runInNewContext(code, {
+      module, exports: module.exports, Error, console,
+      require: name => imports[name] ?? require(name),
+    }, { filename });
+    const Page = module.exports.default;
+    function render() { cursor = 0; tree = Page(); firstRender = false; }
+    function find(predicate, node = tree) {
+      if (!node || typeof node !== 'object') return undefined;
+      if (predicate(node)) return node;
+      for (const child of React.Children.toArray(node.props?.children)) {
+        const found = find(predicate, child);
+        if (found) return found;
+      }
+    }
+    render();
+    effects.forEach(effect => effect());
+    await new Promise(resolve => setImmediate(resolve));
+    render();
+    find(node => node.type === 'button' && node.props.children === 'Edit Username').props.onClick();
+    render();
+    find(node => node.props?.id === 'new-username').props.onChange({ target: { value: scenario === 'invalid' ? 'bad name' : 'New_Name' } });
+    render();
+    const form = find(node => node.type === 'form');
+    const submitted = form.props.onSubmit({ preventDefault() {} });
+    if (scenario === 'success') {
+      await form.props.onSubmit({ preventDefault() {} });
+      assert.deepEqual(calls, [{ username: 'new_name' }]);
+      resolveRename();
+    }
+    await submitted;
+    render();
+    if (scenario === 'success') {
+      assert.match(find(node => node.props?.role === 'status').props.children, /new_name/);
+      assert.equal(find(node => node.type === 'form'), undefined);
+      return;
+    }
+    const message = find(node => node.props?.role === 'alert').props.children;
+    if (scenario === 'invalid') {
+      assert.match(message, /3–20/);
+      assert.deepEqual(calls, []);
+      return;
+    }
+    if (scenario === 'cooldown') assert.match(message, /30 days/);
+    if (scenario === 'inconsistent') assert.match(message, /contact support/);
+    if (scenario === 'unavailable-name') assert.match(message, /unavailable/);
+    if (scenario === 'retry') assert.match(message, /temporarily unavailable/);
+    assert.equal(find(node => node.props?.id === 'new-username').props.value, 'New_Name');
+    if (scenario === 'unavailable-name' || scenario === 'retry') {
+      if (scenario === 'unavailable-name') {
+        find(node => node.props?.id === 'new-username').props.onChange({ target: { value: 'Other_Name' } });
+        render();
+      }
+      await find(node => node.type === 'form').props.onSubmit({ preventDefault() {} });
+      render();
+      assert.deepEqual(calls, [{ username: 'new_name' }, { username: scenario === 'retry' ? 'new_name' : 'other_name' }]);
+      assert.match(find(node => node.props?.role === 'status').props.children, scenario === 'retry' ? /new_name/ : /other_name/);
+    }
+  });
+}
