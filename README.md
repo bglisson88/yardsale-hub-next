@@ -290,6 +290,19 @@ Draft flag with the available tools; the maintainer must set it manually.
 
 ## Deployment
 
+### Username registration
+
+Signup requires a username and calls `registerPublicProfile` in `us-south1`
+after creating the private user document. The selected Firebase project must
+have the reviewed callable deployed; its availability in staging does not
+imply a production deployment. Usernames are 3–20 ASCII letters, numbers, or
+underscores and are stored lowercase. The server also rejects reserved and
+already-claimed names.
+
+If setup fails after the account is created, retry on the signup page. After
+leaving or signing out, sign in with the same account and return to
+`/auth/signup` to finish; do not create another account.
+
 ### Item detail preview verification
 
 Listing cards open `/items/[id]`, which subscribes to the existing `items`
