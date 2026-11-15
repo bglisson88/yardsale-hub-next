@@ -54,9 +54,20 @@ export default function EventDetailPage() {
         const snapshot = await getDoc(doc(db, 'yardSaleEvents', params.id));
         if (!snapshot.exists()) throw new Error('Sale not found.');
         const data = snapshot.data();
+        let publishedAddress = '';
+
+        if (data.locationVisibility === 'exact') {
+          const privateSnapshot = await getDoc(doc(db, 'eventPrivate', params.id));
+          const privateData = privateSnapshot.exists() ? privateSnapshot.data() : null;
+          if (privateData && privateData.userId === data.userId && typeof privateData.address === 'string') {
+            publishedAddress = privateData.address.trim();
+          }
+        }
+
         if (active) {
           setEvent({
             ...data,
+            address: publishedAddress,
             id: snapshot.id,
             startDate: asDate(data.startDate),
             endDate: asDate(data.endDate),
