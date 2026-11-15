@@ -386,6 +386,7 @@ export const renameUsername = onCall(profileCallableOptions, async request => {
       throw new HttpsError(
         'failed-precondition',
         'You can change your username once every 30 days.',
+        { reason: 'USERNAME_RENAME_COOLDOWN' },
       );
     }
 

@@ -304,9 +304,9 @@ leaving or signing out, sign in with the same account and return to
 `/auth/signup` to finish; do not create another account.
 
 Registered users can change their username from their profile using the
-`renameUsername` callable in `us-south1`. The callable enforces the 30-day
-cooldown; the next eligible date is unavailable because the current secure API
-does not expose the previous rename timestamp.
+`renameUsername` callable in `us-south1`. The first change is immediate;
+subsequent changes require 30 days. The next eligible date is unavailable
+because the current secure API does not expose the previous rename timestamp.
 
 ### Item detail preview verification
 

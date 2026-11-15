@@ -56,9 +56,10 @@ function assertUnchanged(beforeSnapshots, afterSnapshots) {
   }
 }
 
-async function assertCallableError(promise, code) {
+async function assertCallableError(promise, code, inspect = () => {}) {
   await assert.rejects(promise, error => {
     assert.equal(error.code, `functions/${code}`);
+    inspect(error);
     return true;
   });
 }
@@ -499,7 +500,9 @@ test('rename cooldown rejects recent changes and allows changes after 30 days', 
   await refs.state.update({ lastRenamedAt: Timestamp.fromMillis(Date.now() - 29 * day) });
   const allRefs = [...Object.values(refs), requestedClaim];
   const beforeSnapshots = await snapshots(allRefs);
-  await assertCallableError(user.rename({ username: requested }), 'failed-precondition');
+  await assertCallableError(user.rename({ username: requested }), 'failed-precondition', error => {
+    assert.deepEqual(error.details, { reason: 'USERNAME_RENAME_COOLDOWN' });
+  });
   assertUnchanged(beforeSnapshots, await snapshots(allRefs));
 
   await refs.state.update({ lastRenamedAt: Timestamp.fromMillis(Date.now() - 31 * day) });
@@ -557,7 +560,9 @@ test('rename fails closed on corrupt ownership, profile, and cooldown state', as
     const allRefs = [...Object.values(refs), requestedClaim];
     const beforeSnapshots = await snapshots(allRefs);
 
-    await assertCallableError(user.rename({ username: requested }), 'failed-precondition');
+    await assertCallableError(user.rename({ username: requested }), 'failed-precondition', error => {
+      assert.equal(error.details, undefined);
+    });
     assertUnchanged(beforeSnapshots, await snapshots(allRefs));
   }
 });

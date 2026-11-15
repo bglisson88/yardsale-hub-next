@@ -15,8 +15,8 @@ import { Avatar } from '@/components/Avatar';
 function renameErrorMessage(error: unknown): string {
   const code = typeof error === 'object' && error !== null && 'code' in error
     ? error.code : undefined;
-  const message = typeof error === 'object' && error !== null && 'message' in error
-    ? error.message : undefined;
+  const details = typeof error === 'object' && error !== null && 'details' in error
+    ? error.details : undefined;
   switch (code) {
     case 'functions/already-exists':
       return 'That username is unavailable. Please choose another.';
@@ -25,7 +25,8 @@ function renameErrorMessage(error: unknown): string {
     case 'functions/unauthenticated':
       return 'Your session has expired. Please sign in again.';
     case 'functions/failed-precondition':
-      return message === 'You can change your username once every 30 days.'
+      return typeof details === 'object' && details !== null && 'reason' in details &&
+        details.reason === 'USERNAME_RENAME_COOLDOWN'
         ? 'You can change your username once every 30 days. Please try again later.'
         : 'Your public profile could not be verified. Please contact support.';
     case 'functions/unavailable':
@@ -160,7 +161,7 @@ export default function ProfilePage() {
             <input id="new-username" value={usernameInput} onChange={event => setUsernameInput(event.target.value)} required
               className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
             <p className="text-sm text-gray-600">
-              3–20 letters, numbers, or underscores. Uppercase becomes lowercase. Usernames can be changed once every 30 days; the next eligible date is not available here.
+              3–20 letters, numbers, or underscores. Uppercase becomes lowercase. Your first username change is immediate; later changes require 30 days between changes. The next eligible date is not available here.
             </p>
             <div className="flex gap-3">
               <button type="submit" disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50">

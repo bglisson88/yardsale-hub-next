@@ -40,7 +40,7 @@ function request(data, auth = { uid: 'user-123', token: {} }) {
   return { data, auth };
 }
 
-async function assertCallableError(call, code, message) {
+async function assertCallableError(call, code, message, details = undefined) {
   let error;
   try {
     await call();
@@ -50,7 +50,12 @@ async function assertCallableError(call, code, message) {
   assert.ok(error instanceof HttpsError);
   assert.equal(error.code, code);
   assert.equal(error.message, message);
-  assert.equal(error.details, undefined);
+  assert.deepEqual(error.details, details);
+  if (details === undefined) {
+    assert.equal(Object.hasOwn(error.toJSON(), 'details'), false);
+  } else {
+    assert.deepEqual(error.toJSON().details, details);
+  }
   return error;
 }
 
@@ -417,6 +422,7 @@ test('rename enforces the full cooldown including fractional timestamps', async 
   const rename = () => renameUsername.run(request({ username: 'new_name' }));
   const assertCooldown = () => assertCallableError(
     rename, 'failed-precondition', 'You can change your username once every 30 days.',
+    { reason: 'USERNAME_RENAME_COOLDOWN' },
   );
 
   t.mock.timers.setTime(boundary - 1);

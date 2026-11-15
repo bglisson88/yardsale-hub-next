@@ -279,7 +279,7 @@ for (const status of ['ready', 'missing', 'error']) test(`profile page handles $
   if (status === 'error') assert.ok(find(node => node.type === 'button' && node.props.children === 'Try again'));
 });
 
-for (const scenario of ['success', 'unavailable-name', 'cooldown', 'inconsistent', 'retry', 'invalid']) {
+for (const scenario of ['success', 'unavailable-name', 'cooldown', 'inconsistent', 'missing-details', 'retry', 'invalid']) {
   test(`profile username editing handles ${scenario}`, async () => {
     const states = [], effects = [], calls = [];
     let cursor = 0, tree, firstRender = true, attempts = 0, resolveRename;
@@ -316,8 +316,8 @@ for (const scenario of ['success', 'unavailable-name', 'cooldown', 'inconsistent
             calls.push({ ...payload });
             attempts++;
             if (scenario === 'unavailable-name' && attempts === 1) throw { code: 'functions/already-exists' };
-            if (scenario === 'cooldown') throw { code: 'functions/failed-precondition', message: 'You can change your username once every 30 days.' };
-            if (scenario === 'inconsistent') throw { code: 'functions/failed-precondition', message: 'Public profile data is inconsistent. Please contact support.' };
+            if (scenario === 'cooldown') throw { code: 'functions/failed-precondition', message: 'Different message', details: { reason: 'USERNAME_RENAME_COOLDOWN' } };
+            if (scenario === 'inconsistent' || scenario === 'missing-details') throw { code: 'functions/failed-precondition', message: 'You can change your username once every 30 days.', details: scenario === 'inconsistent' ? { reason: 'PROFILE_INCONSISTENT' } : undefined };
             if (scenario === 'retry' && attempts === 1) throw { code: 'functions/unavailable' };
             if (scenario === 'success') return new Promise(resolve => { resolveRename = () => resolve({ data: { username: 'new_name' } }); });
             return { data: { username: payload.username } };
@@ -356,6 +356,9 @@ for (const scenario of ['success', 'unavailable-name', 'cooldown', 'inconsistent
     render();
     find(node => node.type === 'button' && node.props.children === 'Edit Username').props.onClick();
     render();
+    assert.ok(find(node => node.type === 'p' && typeof node.props.children === 'string' &&
+      node.props.children.includes('first username change is immediate') &&
+      node.props.children.includes('30 days')));
     find(node => node.props?.id === 'new-username').props.onChange({ target: { value: scenario === 'invalid' ? 'bad name' : 'New_Name' } });
     render();
     const form = find(node => node.type === 'form');
@@ -379,7 +382,7 @@ for (const scenario of ['success', 'unavailable-name', 'cooldown', 'inconsistent
       return;
     }
     if (scenario === 'cooldown') assert.match(message, /30 days/);
-    if (scenario === 'inconsistent') assert.match(message, /contact support/);
+    if (scenario === 'inconsistent' || scenario === 'missing-details') assert.match(message, /contact support/);
     if (scenario === 'unavailable-name') assert.match(message, /unavailable/);
     if (scenario === 'retry') assert.match(message, /temporarily unavailable/);
     assert.equal(find(node => node.props?.id === 'new-username').props.value, 'New_Name');
