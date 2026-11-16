@@ -113,7 +113,6 @@ for (const { file, eventWritesAllowed } of SUPPORTED_CONFIGS) {
       const alice = database(environment, aliceUid);
       const bob = database(environment, 'bob');
       const profileRef = doc(anonymous, 'publicProfiles', 'alice');
-      const claimRef = doc(anonymous, 'usernameClaims', 'alice');
 
       const publicProfile = await assertSucceeds(getDoc(profileRef));
       assert.deepEqual(Object.keys(publicProfile.data()).sort(), [
@@ -140,11 +139,11 @@ for (const { file, eventWritesAllowed } of SUPPORTED_CONFIGS) {
         }));
         await assertFails(deleteDoc(doc(db, 'publicProfiles', 'alice')));
       }
-
-      assert.equal((await assertSucceeds(getDoc(claimRef))).data().uid, 'alice');
-      assert.equal((await assertSucceeds(getDoc(
-        doc(bob, 'usernameClaims', 'alice'),
-      ))).data().uid, 'alice');
+      for (const db of [anonymous, alice, bob]) {
+        await assertFails(getDoc(
+          doc(db, 'usernameClaims', 'alice'),
+        ));
+      }
       for (const db of [anonymous, alice, bob]) {
         await assertFails(getDocs(collection(db, 'usernameClaims')));
         await assertFails(setDoc(doc(db, 'usernameClaims', 'new'), { uid: 'new' }));

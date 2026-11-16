@@ -69,9 +69,7 @@ service cloud.firestore {
     }
 
     match /usernameClaims/{canonicalUsername} {
-      allow get: if true;
-      allow list: if false;
-      allow create, update, delete: if false;
+      allow read, write: if false;
     }
 
     match /usernameState/{uid} {
