@@ -104,11 +104,42 @@ function harness({ id = 'chair', user = null, authLoading = false } = {}) {
     reads, listeners, find, render,
     html: () => renderToStaticMarkup(tree),
     emit(data = listing) {
-      listeners.at(-1).next({ id, exists: () => data !== null, data: () => data });
+      const listener = [...listeners].reverse().find(
+        entry => entry.target === `items/${id}` && !entry.unsubscribed
+      );
+      assert.ok(listener, 'Active item listener exists');
+      listener.next({ id, exists: () => data !== null, data: () => data });
       render();
     },
-    fail() { listeners.at(-1).error(new Error('private provider details')); render(); },
+    fail() {
+      const listener = [...listeners].reverse().find(
+        entry => entry.target === `items/${id}` && !entry.unsubscribed
+      );
+      assert.ok(listener, 'Active item listener exists');
+      listener.error(new Error('private provider details'));
+      render();
+    },
     retry() { find(node => node.props?.children === 'Try again').props.onClick(); render(); render(); },
+    emitProfile(sellerId, data) {
+      const listener = [...listeners].reverse().find(
+        entry => entry.target === `publicProfiles/${sellerId}` && !entry.unsubscribed
+      );
+      assert.ok(listener, 'Active public profile listener exists');
+      listener.next({
+        id: sellerId,
+        exists: () => data !== null,
+        data: () => data,
+      });
+      render();
+    },
+    failProfile(sellerId) {
+      const listener = [...listeners].reverse().find(
+        entry => entry.target === `publicProfiles/${sellerId}` && !entry.unsubscribed
+      );
+      assert.ok(listener, 'Active public profile listener exists');
+      listener.error(new Error('Private profile details must not leak'));
+      render();
+    },
     auth(next) { authState = next; render(); },
     unmount() { effects.forEach(effect => effect.cleanup?.()); },
   };
@@ -126,7 +157,10 @@ test('detail subscribes to the URL document, renders saved photos after refresh,
     }
     for (const url of listing.photoURLs) assert.ok(html.includes(url.replace(/&/g, '&amp;')));
     assert.doesNotMatch(html, /private@example|Private street|Edit Listing/);
-    assert.equal(page.reads.length, 1, 'No seller profile lookup');
+    assert.deepEqual(page.reads, [
+      { collection: 'items', id: 'chair' },
+      { collection: 'publicProfiles', id: 'seller' },
+    ]);
     page.unmount();
     assert.ok(page.listeners[0].unsubscribed);
   }
@@ -164,7 +198,7 @@ test('only the owner can edit and unsupported seller messaging is explicitly una
   const owner = harness({ id: 'item with spaces', user: { id: 'seller' } });
   owner.emit();
   assert.match(owner.html(), /href="\/items\/item%20with%20spaces\/edit"/);
-  assert.match(owner.html(), /You are the seller/);
+  assert.match(owner.html(), /YardSale Hub member/);
   assert.doesNotMatch(owner.html(), /Contact seller is currently unavailable/);
   const pending = harness({ user: { id: 'seller' }, authLoading: true });
   pending.emit();
@@ -199,4 +233,103 @@ test('shared listing cards link to encoded document IDs, not title search', () =
     item: { ...listing, id: 'table with spaces' },
   }));
   assert.match(html, /href="\/items\/table%20with%20spaces"/);
+});
+
+
+test('public seller username is displayed for guests and owners', () => {
+  for (const user of [null, { id: 'seller' }]) {
+    const page = harness({ user });
+    page.emit();
+
+    assert.match(page.html(), /YardSale Hub member/);
+
+    page.emitProfile('seller', { username: 'yardsaletest2' });
+
+    assert.match(page.html(), /yardsaletest2/);
+    assert.doesNotMatch(page.html(), /private@example|Private street/);
+
+    if (user) {
+      assert.match(page.html(), /Edit Listing/);
+    } else {
+      assert.doesNotMatch(page.html(), /Edit Listing/);
+    }
+
+    page.unmount();
+    assert.ok(page.listeners.every(listener => listener.unsubscribed));
+  }
+});
+
+test('missing and invalid public usernames use the generic seller fallback', () => {
+  for (const profile of [
+    null,
+    {},
+    { username: 'ab' },
+    { username: 'invalid username' },
+    { username: 12345 },
+  ]) {
+    const page = harness();
+    page.emit();
+    page.emitProfile('seller', profile);
+
+    assert.match(page.html(), /YardSale Hub member/);
+    assert.doesNotMatch(page.html(), /yardsaletest2/);
+
+    page.unmount();
+  }
+});
+
+test('public profile lookup errors do not expose private information', () => {
+  const page = harness();
+  page.emit();
+
+  page.failProfile('seller');
+
+  assert.match(page.html(), /YardSale Hub member/);
+  assert.doesNotMatch(page.html(), /Private profile details|private@example|Private street/);
+
+  page.unmount();
+  assert.ok(page.listeners.every(listener => listener.unsubscribed));
+});
+
+test('switching sellers never displays a stale public username', () => {
+  const page = harness();
+  page.emit();
+
+  const oldProfile = page.listeners.find(
+    listener => listener.target === 'publicProfiles/seller'
+  );
+
+  assert.ok(oldProfile);
+  page.emitProfile('seller', { username: 'seller_one' });
+  assert.match(page.html(), /seller_one/);
+
+  page.emit({ ...listing, userId: 'seller-b' });
+
+  assert.ok(oldProfile.unsubscribed);
+  assert.match(page.html(), /YardSale Hub member/);
+  assert.doesNotMatch(page.html(), /seller_one/);
+
+  const newProfile = page.listeners.find(
+    listener => listener.target === 'publicProfiles/seller-b'
+  );
+
+  assert.ok(newProfile);
+
+  // Simulate a callback arriving after the previous listener was removed.
+  oldProfile.next({
+    id: 'seller',
+    exists: () => true,
+    data: () => ({ username: 'seller_one' }),
+  });
+
+  assert.match(page.html(), /YardSale Hub member/);
+  assert.doesNotMatch(page.html(), /seller_one/);
+
+  page.emitProfile('seller-b', { username: 'seller_two' });
+
+  assert.match(page.html(), /seller_two/);
+  assert.doesNotMatch(page.html(), /seller_one/);
+
+  page.unmount();
+  assert.ok(page.listeners.every(listener => listener.unsubscribed));
 });
