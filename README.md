@@ -311,30 +311,55 @@ because the current secure API does not expose the previous rename timestamp.
 ### Item detail preview verification
 
 Listing cards open `/items/[id]`, which subscribes to the existing `items`
-document and displays its saved photos and public listing fields. Seller
-profiles are not fetched: the item model has no public seller name, so the page
-uses a generic member label and never displays profile email or address fields.
-Only the signed-in owner sees the existing Edit Listing link; the edit page and
-Firestore rules remain responsible for write authorization.
+document and displays its saved photos and public listing fields.
 
-Contact seller currently shows an unavailable notice. The existing inbox only
-loads outgoing messages, so initiating seller inquiries safely requires a
-separate messaging fix. This route does not write messages or change that inbox.
+The item detail page retrieves the seller's public profile from
+`publicProfiles/{sellerId}` and displays its validated public `username` to
+both guests and signed-in users. Usernames must contain 3-20 ASCII letters,
+numbers, or underscores. If the profile is missing, invalid, or unavailable,
+the page displays the generic `YardSale Hub member` fallback.
+
+The public profile lookup is independent of the listing subscription.
+The displayed username is associated with the current seller ID so a previous
+seller's username cannot appear when switching listings. Firestore listeners
+are cleaned up when the seller changes or the component unmounts.
+
+The page does not retrieve or display private seller email or street-address
+fields. The public profile rules allow individual profile reads but prohibit
+collection listing and direct client writes. Only the signed-in owner sees
+the Edit Listing link; the edit page and Firestore rules remain responsible
+for write authorization.
+
+Contact seller currently shows an unavailable notice. The existing inbox
+still does not support initiating seller inquiries from this route. This
+route does not write messages or change inbox behavior.
+
+PR #34 seller username verification:
+- Guest staging view displays the seller's public username.
+- Signed-in owner view displays the same public username.
+- The owner retains the Edit Listing link.
+- Automated item-detail tests: 10 passed.
+- Full application tests: 91 passed.
+- TypeScript check and Next.js production build passed.
+- GitHub checks passed for the updated PR branch.
+
+These checks were performed against the staging Preview. Production data
+and production Firebase configuration were not changed.
 
 Before testing a Vercel Preview of this branch, have the project administrator
-verify that **all six** existing `NEXT_PUBLIC_FIREBASE_*` variables target
-`yardsale-hub-staging` (including its Auth app and Storage bucket). The variables
-scoped to PR #31's branch do not automatically apply to this separate branch.
-Do not test a preview whose Firebase target is unverified.
+verify that all six existing `NEXT_PUBLIC_FIREBASE_*` variables target
+`yardsale-hub-staging`, including its Auth app and Storage bucket. Variables
+scoped to PR #31 do not automatically apply to this branch. Do not test a
+preview whose Firebase target is unverified.
 
-On the confirmed staging Preview, open an existing staging listing from both
-the homepage and browse page, refresh its detail URL, and verify all saved
-photos and fields on mobile and desktop. Sign in as its owner and follow
-Edit Listing; repeat as another user and signed out to confirm the link is
-absent. Check a nonexistent ID and a disconnected/blocked Firestore request
-for the not-found and retry states. Do not change production data or Firebase
-rules to run these checks.
-
+On the confirmed staging Preview:
+- Open an existing staging listing from both the homepage and browse page.
+- Refresh its detail URL and verify saved photos and fields on mobile and desktop.
+- Verify the public seller username as a guest and as the listing owner.
+- Confirm the owner sees Edit Listing and other users do not.
+- Check a nonexistent ID and a disconnected or blocked Firestore request for
+  the not-found and retry states.
+- Do not change production data or Firebase rules to run these checks.
 This project is configured for Vercel:
 
 1. Push code to GitHub
