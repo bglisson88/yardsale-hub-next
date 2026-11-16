@@ -788,8 +788,9 @@ test('legacy private-address batch fails atomically for unapproved public locati
   batch.set(privateRef, { userId: 'alice', address: '12 Main Street' });
   await assertFails(batch.commit());
   await environment.withSecurityRulesDisabled(async context => {
-    assert.equal((await getDoc(doc(context.firestore(), 'yardSaleEvents', 'invalid-batch'))).exists(), false);
-    assert.equal((await getDoc(doc(context.firestore(), 'eventPrivate', 'invalid-batch'))).exists(), false);
+    const db = context.firestore();
+    assert.equal((await getDoc(doc(db, 'yardSaleEvents', 'invalid-batch'))).exists(), false);
+    assert.equal((await getDoc(doc(db, 'eventPrivate', 'invalid-batch'))).exists(), false);
   });
 });
 
