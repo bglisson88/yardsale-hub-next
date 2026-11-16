@@ -180,8 +180,26 @@ IDs, conflicting or duplicate project/confirmation arguments, emulator
 configuration, and a conflicting `GCLOUD_PROJECT`. It reports aggregate
 counts for event/private/consent consistency and public sensitive fields; it
 does not write data or print event addresses, coordinates, event IDs, or
-organizer IDs.
+organizer IDs. Catalog and alias matches are review-unverified: neither a match
+nor a Firestore flag proves independent review. The audit does not verify a
+reviewer-authenticated inventory. Suspicious patterns are review candidates,
+not a complete detector. Titles, descriptions, other strings, and unrecognized
+fields may contain sensitive data. Structural policy checks do not prove
+consent provenance.
 
-Run the staging audit before any staging deployment. Run the production audit
-only after separate authorization and review of the exact production rules
-source and read-only credentials. Neither audit performs remediation.
+Anonymous-read assessments conservatively model the tracked staging Rules:
+potentially readable includes indeterminate outcomes, such as Firestore
+integer-versus-double and non-ASCII size ambiguity, rather than confirmed
+reads. Owner read conditions are counted separately and assume an authenticated
+matching owner. Neither assessment establishes which Rules are deployed;
+independently verify the published Rules before relying on these counts.
+
+The collection scans and joins are not a consistent snapshot during concurrent
+writes. Aggregates can be identifying when counts are small and do not provide
+record identifiers for remediation. See `DEPLOYMENT_CHECKLIST.md` for review
+and follow-up safeguards.
+
+Run the staging audit before any staging deployment only after separate
+authorization. Run the production audit only after separate authorization and
+review of the exact production rules source and read-only credentials.
+Neither audit performs remediation; remediation requires separate approval.

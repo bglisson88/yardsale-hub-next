@@ -79,14 +79,50 @@ publicly listed events.
     --project yardsale-hub-staging \
     --confirm-read-only-staging-audit
   ```
+- [ ] Treat catalog and alias matches as review-unverified. The audit cannot
+      establish that an entry is independently reviewed or genuinely broad,
+      and no Firestore review flag proves either. A missing or malformed
+      inventory leaves locations unverified. Never import profile locations
+      automatically. Establish independent review through a separately
+      authorized, reviewer-authenticated inventory and integrity process;
+      the audit does not currently verify such an inventory.
+- [ ] Review the audit's catalog-matched-but-unverified, suspicious, malformed,
+      missing, and other unverified location counts. Suspicious address/
+      coordinate patterns are review candidates, not a complete detector. A
+      catalog match or zero suspicious count does not prove content is safe.
+      Titles, descriptions, other strings, and unrecognized location field
+      names may also contain sensitive information; the free-text count is
+      not a content inspection.
+- [ ] Interpret exact-event anonymous-read counts as conservative assessments
+      of the tracked staging Rules, not verified deployed Rules or confirmed
+      reads. Potentially readable includes indeterminate cases, including
+      Firestore integer-versus-double and non-ASCII size ambiguity. The owner
+      read-condition count is separate and assumes an authenticated matching
+      owner; it does not prove the account exists or imply anonymous access.
+      Policy-structurally plausible counts are not proof of consent provenance
+      or independently reviewed location safety. Review potentially readable
+      events that fail the stricter structural policy. A marker reported on a
+      general event is present but is not necessarily valid.
+- [ ] Independently verify the deployed Rules before relying on any Rules
+      assessment; the tracked staging Rules are not evidence of what is
+      published in either project. Production Rules reconciliation remains
+      blocked until the complete currently published production source is
+      obtained and reviewed.
+- [ ] Use reviewed read-only credentials. The audit emits aggregates, not
+      record identifiers or values; small counts can still be identifying.
+      Document the approved process for investigating and remediating
+      findings without publishing sensitive data. Any remediation requires
+      separate authorization.
+- [ ] Account for concurrent writes: paginated collection reads and joins are
+      not a single consistent snapshot. Coordinate or repeat the audit under
+      an approved process and verify remediation before relying on results.
 - [ ] If the staging audit finds unsafe public documents, keep the deployment
       blocked until a separate reviewed cleanup is approved and completed.
       Firestore Rules cannot redact fields from public list results.
-- [ ] Separately review existing public `location` values for unsafe or
-      unapproved values before enabling public browsing. The existing audit
-      counts prohibited fields but does **not** classify arbitrary location
-      strings; do not log addresses, event IDs, or organizer IDs. Obtain
-      separate authorization for any expanded audit or remediation.
+- [ ] Separately review unverified or suspicious public `location` values and
+      other potentially sensitive public content before enabling browsing.
+      Do not log addresses, event IDs, or organizer IDs. Obtain separate
+      authorization for any expanded inspection or remediation.
 - [ ] After separate authorization, provision and review the staging catalog
       and finite legacy alias index, including all intended legacy choices.
       Test malformed, unapproved, inactive, and mismatched locations on create
@@ -131,8 +167,8 @@ Do not treat staging verification as production authorization.
 ## Future coordinated release (separate authorization required)
 
 1. Complete the read-only audit and any separately approved data remediation.
-   Review existing public location values separately: the current audit does
-   not determine whether arbitrary location strings are broad locations.
+   Review existing public location values and other free text separately: the
+   audit cannot prove that arbitrary strings are broad locations or safe.
 2. Separately authorize, provision, and review the catalog and finite alias
    index, then deploy the compatible Functions. Verify approved legacy options.
 3. Publish rules derived from the verified live production rules. Public event
