@@ -21,6 +21,7 @@ const SAVE_KEYS = [
   'title',
   'description',
   'location',
+  'locationId',
   'locationVisibility',
   'startDateMs',
   'endDateMs',
@@ -48,6 +49,7 @@ interface SaveRequest {
   title: string;
   description: string;
   location: string;
+  locationId: string;
   locationVisibility: EventVisibility;
   startDateMs: number;
   endDateMs: number;
@@ -92,6 +94,8 @@ function parseSaveRequest(value: unknown): SaveRequest {
     typeof value.location !== 'string' ||
     value.location.trim().length === 0 ||
     value.location.trim().length > 200 ||
+    typeof value.locationId !== 'string' ||
+    !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(value.locationId) ||
     !['general', 'exact'].includes(String(value.locationVisibility)) ||
     !Number.isSafeInteger(value.startDateMs) ||
     !Number.isSafeInteger(value.endDateMs) ||
@@ -136,6 +140,7 @@ function parseSaveRequest(value: unknown): SaveRequest {
     title: value.title.trim(),
     description: value.description.trim(),
     location: value.location.trim(),
+    locationId: value.locationId,
     locationVisibility: visibility,
     startDateMs: value.startDateMs as number,
     endDateMs: value.endDateMs as number,
@@ -145,6 +150,23 @@ function parseSaveRequest(value: unknown): SaveRequest {
     consentVersion: value.consentVersion as string | null,
     consentConfirmed: value.consentConfirmed,
   };
+}
+
+function validCatalogLocation(data: DocumentData | undefined, display: string): boolean {
+  if (!data || !hasExactKeys(data, [
+    'kind', 'displayName', 'active', 'approvedAliases', 'countryCode', 'regionCode',
+  ])) return false;
+  return ['city', 'state', 'postalCode', 'area'].includes(data.kind) &&
+    typeof data.displayName === 'string' &&
+    data.displayName.length > 0 &&
+    data.displayName.length <= 200 &&
+    data.displayName === display &&
+    data.active === true &&
+    Array.isArray(data.approvedAliases) &&
+    typeof data.countryCode === 'string' &&
+    /^[A-Z]{2}$/.test(data.countryCode) &&
+    typeof data.regionCode === 'string' &&
+    data.regionCode.length <= 32;
 }
 
 function parseDeleteRequest(value: unknown): {
@@ -248,6 +270,7 @@ export const saveEventWithConsent = onCall(profileCallableOptions, async request
   const privateRef = firestore.collection('eventPrivate').doc(input.eventId);
   const markerRef = firestore.collection('eventAddressConsent').doc(input.eventId);
   const historyRef = markerRef.collection('history').doc(input.operationId);
+  const locationRef = firestore.collection('generalLocations').doc(input.locationId);
   const action: EventAction = input.locationVisibility === 'exact' ? 'granted' : 'revoked';
 
   try {
@@ -268,10 +291,11 @@ export const saveEventWithConsent = onCall(profileCallableOptions, async request
         }
       }
 
-      const [eventSnapshot, privateSnapshot, markerSnapshot] = await Promise.all([
+      const [eventSnapshot, privateSnapshot, markerSnapshot, locationSnapshot] = await Promise.all([
         transaction.get(eventRef),
         transaction.get(privateRef),
         transaction.get(markerRef),
+        transaction.get(locationRef),
       ]);
       const current = eventSnapshot.data();
       if (eventSnapshot.exists && current?.userId !== uid) {
@@ -279,6 +303,13 @@ export const saveEventWithConsent = onCall(profileCallableOptions, async request
       }
       if (privateSnapshot.exists && privateSnapshot.get('userId') !== uid) {
         throw new HttpsError('failed-precondition', 'The private event record could not be verified.');
+      }
+      if (!locationSnapshot.exists || !validCatalogLocation(locationSnapshot.data(), input.location)) {
+        throw new HttpsError(
+          'failed-precondition',
+          'Select an active, approved general location.',
+          { reason: 'INVALID_GENERAL_LOCATION' },
+        );
       }
 
       const currentVersion = eventSnapshot.exists ? currentEventVersion(current ?? {}) : 0;
@@ -308,6 +339,7 @@ export const saveEventWithConsent = onCall(profileCallableOptions, async request
         title: input.title,
         description: input.description,
         location: input.location,
+        locationId: input.locationId,
         locationVisibility: input.locationVisibility,
         startDate: Timestamp.fromMillis(input.startDateMs),
         endDate: Timestamp.fromMillis(input.endDateMs),

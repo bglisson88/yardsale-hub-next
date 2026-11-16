@@ -9,6 +9,76 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
+    // Both the catalog and alias index are populated only by reviewed,
+    // trusted administrative processes.
+    function validCatalogRecord(data) {
+      return data.keys().hasAll([
+          'kind', 'displayName', 'active', 'approvedAliases',
+          'countryCode', 'regionCode'
+        ])
+        && data.keys().hasOnly([
+          'kind', 'displayName', 'active', 'approvedAliases',
+          'countryCode', 'regionCode'
+        ])
+        && data.kind in ['city', 'state', 'postalCode', 'area']
+        && data.displayName is string
+        && data.displayName.size() > 0
+        && data.displayName.size() <= 200
+        && data.active == true
+        && data.approvedAliases is list
+        && data.countryCode is string
+        && data.countryCode.matches('^[A-Z]{2}$')
+        && data.regionCode is string
+        && data.regionCode.size() <= 32;
+    }
+
+    function catalogLocationMatches(locationId, display, legacy) {
+      let location = get(
+        /databases/$(database)/documents/generalLocations/$(locationId)
+      ).data;
+      return validCatalogRecord(location)
+        && (legacy
+          ? (location.displayName == display
+             || location.approvedAliases.hasAny([display]))
+          : location.displayName == display);
+    }
+
+    function validLocationId(locationId) {
+      return locationId is string
+        && locationId.matches('^[a-z0-9][a-z0-9_-]{0,63}$');
+    }
+
+    function validLegacyAlias(aliases, display) {
+      let locationId = aliases.get(display, null);
+      return validLocationId(locationId)
+        && catalogLocationMatches(locationId, display, true);
+    }
+
+    function validLegacyIndex(index, display) {
+      return index is map
+        && index.keys().hasAll(['schemaVersion', 'aliases'])
+        && index.keys().hasOnly(['schemaVersion', 'aliases'])
+        && index.schemaVersion == 1
+        && index.aliases is map
+        && validLegacyAlias(index.aliases, display);
+    }
+
+    function validLegacyLocation(display) {
+      let indexPath = /databases/$(database)/documents/generalLocationAliases/current;
+      return exists(indexPath)
+        && validLegacyIndex(get(indexPath).data, display);
+    }
+
+    function validWriteLocation(data) {
+      return data.location is string
+        && data.location.size() > 0
+        && data.location.size() <= 200
+        && (data.keys().hasAny(['locationId'])
+          ? (validLocationId(data.locationId)
+             && catalogLocationMatches(data.locationId, data.location, false))
+          : validLegacyLocation(data.location));
+    }
+
     function validUser(uid, data) {
       return data.keys().hasAll([
           'id', 'email', 'displayName', 'photoURL', 'location', 'bio',
@@ -73,7 +143,7 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'userId', 'title', 'description', 'location', 'locationVisibility',
           'startDate', 'endDate', 'photoURL', 'createdAt', 'updatedAt',
-          'itemCount', 'eventVersion'
+          'itemCount', 'eventVersion', 'locationId'
         ])
         && data.userId is string
         && data.title is string
@@ -108,7 +178,8 @@ service cloud.firestore {
         && data.address.size() <= 300
         && publicEvent.userId == request.auth.uid
         && publicEvent.locationVisibility == 'general'
-        && validEvent(publicEvent);
+        && validEvent(publicEvent)
+        && validWriteLocation(publicEvent);
     }
 
     function validActiveAddressConsent(eventId, event, privateEvent) {
@@ -218,6 +289,7 @@ service cloud.firestore {
 
       allow create: if signedIn()
         && validEvent(request.resource.data)
+        && validWriteLocation(request.resource.data)
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.itemCount == 0
         && request.resource.data.locationVisibility == 'general'
@@ -228,12 +300,13 @@ service cloud.firestore {
         && resource.data.locationVisibility == 'general'
         && !resource.data.keys().hasAny(['eventVersion'])
         && validEvent(request.resource.data)
+        && validWriteLocation(request.resource.data)
         && request.resource.data.userId == resource.data.userId
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.itemCount == resource.data.itemCount
         && request.resource.data.locationVisibility == 'general'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'title', 'description', 'location', 'startDate', 'endDate',
+          'title', 'description', 'location', 'locationId', 'startDate', 'endDate',
           'photoURL', 'updatedAt'
         ]);
 
@@ -243,6 +316,15 @@ service cloud.firestore {
         && !exists(
           /databases/$(database)/documents/eventAddressConsent/$(eventId)
         );
+    }
+
+    match /generalLocations/{locationId} {
+      allow get, list: if true;
+      allow create, update, delete: if false;
+    }
+
+    match /generalLocationAliases/{document} {
+      allow read, write: if false;
     }
 
     match /eventPrivate/{eventId} {

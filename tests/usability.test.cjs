@@ -333,10 +333,10 @@ test('event deletion notifications distinguish deferred cleanup from deletion fa
   assert.deepEqual(failed.pushes, []);
 });
 
-async function eventForm(eventId = 'event1') {
+async function eventForm(eventId = 'event1', profileLocation = 'Nederland') {
   const state = [], dependencies = [], effects = [], pushes = [], errors = [], confirmations = [];
   let cursor = 0, tree, confirmed = true;
-  let user = { id: 'owner', location: 'Nederland' };
+  let user = { id: 'owner', location: profileLocation };
   const data = {
     userId: 'owner', title: 'Sale', description: '', location: 'Nederland',
     locationVisibility: 'general', startDate: new Date(2026, 10, 10, 9),
@@ -419,6 +419,15 @@ async function eventForm(eventId = 'event1') {
     },
   };
 }
+
+test('new events do not preselect or offer an untrusted profile location', async () => {
+  const form = await eventForm(null, '12 Main Street');
+  assert.equal(form.find(node => node.props?.id === 'event-location-search').props.value, '');
+  assert.equal(form.find(node => node.props?.children === '12 Main Street'), undefined);
+  assert.ok(form.find(node => React.Children.toArray(node.props?.children).some(
+    child => typeof child === 'string' && child.startsWith('Select an approved location before saving'),
+  )));
+});
 
 test('editing cancels cleanly and asks before discarding changes', async () => {
   const clean = await eventForm();

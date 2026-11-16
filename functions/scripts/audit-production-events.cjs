@@ -6,15 +6,67 @@ const {
   getFirestore,
 } = require('firebase-admin/firestore');
 
-const PROJECT_ID = 'yardsale-hub-93c49';
+const AUDIT_PROJECTS = Object.freeze({
+  'yardsale-hub-93c49': '--confirm-read-only-production-audit',
+  'yardsale-hub-staging': '--confirm-read-only-staging-audit',
+});
+const CONFIRMATION_FLAGS = new Set(Object.values(AUDIT_PROJECTS));
 const PAGE_SIZE = 400;
 const SENSITIVE_FIELD = /(address|latitude|longitude|coordinates?|geopoint|street)/i;
 
-function usage() {
-  console.error(
-    'Usage: node functions/scripts/audit-production-events.cjs --project yardsale-hub-93c49 --confirm-read-only-production-audit',
-  );
-  process.exitCode = 2;
+function validateAuditArguments(args, env = process.env) {
+  const projectPositions = args.flatMap((argument, index) =>
+    argument === '--project' ? [index] : []);
+  if (projectPositions.length !== 1) {
+    return { error: 'Provide exactly one --project argument.' };
+  }
+
+  const projectIndex = projectPositions[0];
+  const projectId = args[projectIndex + 1];
+  if (!Object.hasOwn(AUDIT_PROJECTS, projectId)) {
+    return {
+      error: `Unsupported Firebase project ID "${String(projectId)}".`,
+    };
+  }
+
+  const suppliedConfirmations = args.filter(argument =>
+    CONFIRMATION_FLAGS.has(argument));
+  if (suppliedConfirmations.length !== 1) {
+    return {
+      error: 'Provide exactly one project-specific read-only confirmation flag.',
+    };
+  }
+  const requiredConfirmation = AUDIT_PROJECTS[projectId];
+  if (suppliedConfirmations[0] !== requiredConfirmation) {
+    return {
+      error: `Firebase project "${projectId}" requires ${requiredConfirmation}; confirmation flags cannot be interchanged.`,
+    };
+  }
+  if (
+    args.length !== 3 ||
+    args.filter(argument => argument === projectId).length !== 1
+  ) {
+    return { error: 'Unexpected or duplicate audit arguments.' };
+  }
+
+  const allowedArguments = new Set([
+    '--project',
+    projectId,
+    requiredConfirmation,
+  ]);
+  if (args.some(argument => !allowedArguments.has(argument))) {
+    return { error: 'Unexpected or duplicate audit arguments.' };
+  }
+  if (env.FIRESTORE_EMULATOR_HOST) {
+    return { error: 'Refusing to audit while a Firestore emulator is configured.' };
+  }
+  if (env.GCLOUD_PROJECT && env.GCLOUD_PROJECT !== projectId) {
+    return {
+      error: `Requested project "${projectId}" does not match GCLOUD_PROJECT "${env.GCLOUD_PROJECT}".`,
+    };
+  }
+
+  return { projectId };
 }
 
 function containsSensitiveLocation(value, seen = new Set()) {
@@ -43,20 +95,7 @@ async function readCollection(db, name, onDocument) {
   }
 }
 
-async function main() {
-  const projectIndex = process.argv.indexOf('--project');
-  if (
-    process.argv[projectIndex + 1] !== PROJECT_ID ||
-    !process.argv.includes('--confirm-read-only-production-audit') ||
-    process.env.FIRESTORE_EMULATOR_HOST ||
-    (process.env.GCLOUD_PROJECT && process.env.GCLOUD_PROJECT !== PROJECT_ID)
-  ) {
-    usage();
-    return;
-  }
-
-  initializeApp({ projectId: PROJECT_ID });
-  const db = getFirestore();
+async function collectAuditCounts(db) {
   const events = new Map();
   const privateEvents = new Map();
   const consentMarkers = new Map();
@@ -157,15 +196,42 @@ async function main() {
     }
   }
 
-  console.log(JSON.stringify({
-    projectId: PROJECT_ID,
-    readOnly: true,
-    counts,
-  }, null, 2));
+  return counts;
 }
 
-main().catch(error => {
-  const code = error && typeof error.code === 'string' ? error.code : 'unknown';
-  console.error(`Read-only production event audit failed (${code}).`);
-  process.exitCode = 1;
-});
+function formatSummary(projectId, counts) {
+  return JSON.stringify({
+    projectId,
+    readOnly: true,
+    counts,
+  }, null, 2);
+}
+
+async function main(args = process.argv.slice(2), env = process.env) {
+  const validation = validateAuditArguments(args, env);
+  if (validation.error) {
+    console.error(
+      `${validation.error}\nUsage: node functions/scripts/audit-production-events.cjs --project <yardsale-hub-93c49|yardsale-hub-staging> <matching read-only confirmation flag>`,
+    );
+    process.exitCode = 2;
+    return;
+  }
+
+  initializeApp({ projectId: validation.projectId });
+  const counts = await collectAuditCounts(getFirestore());
+  console.log(formatSummary(validation.projectId, counts));
+}
+
+if (require.main === module) {
+  main().catch(error => {
+    const code = error && typeof error.code === 'string' ? error.code : 'unknown';
+    console.error(`Read-only event audit failed (${code}).`);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  collectAuditCounts,
+  formatSummary,
+  validateAuditArguments,
+};

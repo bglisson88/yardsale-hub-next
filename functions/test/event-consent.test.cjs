@@ -34,6 +34,14 @@ class FakeReference {
 class FakeFirestore {
   constructor(records = new Map()) {
     this.records = records;
+    this.records.set('generalLocations/nederland-tx', {
+      kind: 'city',
+      displayName: 'Nederland',
+      active: true,
+      approvedAliases: [],
+      countryCode: 'US',
+      regionCode: 'TX',
+    });
     this.writes = [];
   }
 
@@ -84,6 +92,7 @@ function eventInput(overrides = {}) {
     title: 'Neighborhood Sale',
     description: 'Saturday sale',
     location: 'Nederland',
+    locationId: 'nederland-tx',
     locationVisibility: 'exact',
     startDateMs: Date.parse('2026-11-20T09:00:00Z'),
     endDateMs: Date.parse('2026-11-20T12:00:00Z'),
@@ -165,6 +174,7 @@ test('creates an exact event without public address or precise coordinates', asy
   );
   assert.equal(event.userId, 'organizer-1');
   assert.equal(event.locationVisibility, 'exact');
+  assert.equal(event.locationId, 'nederland-tx');
   assert.equal(event.eventVersion, 1);
   for (const field of ['address', 'latitude', 'longitude']) {
     assert.equal(Object.hasOwn(event, field), false);
@@ -178,6 +188,60 @@ test('creates an exact event without public address or precise coordinates', asy
   assert.equal(history.action, 'granted');
   assert.equal(history.addressRevision, marker.addressRevision);
   assert.equal(Object.hasOwn(history, 'address'), false);
+});
+
+test('requires a valid active catalog location and matching public display', async t => {
+  const firestore = new FakeFirestore();
+  mockFirestore(t, firestore);
+  for (const overrides of [
+    { location: '12 Main Street' },
+    { locationId: 'unknown' },
+    { locationId: '../private' },
+    { locationId: null },
+  ]) {
+    await assert.rejects(() => saveEventWithConsent.run(request(eventInput(overrides))), HttpsError);
+    assert.equal(firestore.writes.length, 0);
+  }
+  const location = firestore.records.get('generalLocations/nederland-tx');
+  for (const invalid of [
+    { ...location, active: false },
+    { ...location, kind: 'street' },
+    { ...location, approvedAliases: 'Nederland' },
+    { ...location, countryCode: 'USA' },
+    { ...location, extra: true },
+  ]) {
+    firestore.records.set('generalLocations/nederland-tx', invalid);
+    await assertError(
+      () => saveEventWithConsent.run(request(eventInput())),
+      'failed-precondition',
+      { reason: 'INVALID_GENERAL_LOCATION' },
+    );
+    assert.equal(firestore.writes.length, 0);
+  }
+});
+
+test('accepts each approved location kind and rejects alias-only callable displays', async t => {
+  const firestore = new FakeFirestore();
+  mockFirestore(t, firestore);
+  const catalog = firestore.records.get('generalLocations/nederland-tx');
+  for (const [kind, displayName] of [
+    ['city', 'Nederland'],
+    ['state', 'Texas'],
+    ['postalCode', '77705'],
+    ['area', 'West Beaumont'],
+  ]) {
+    firestore.records.set('generalLocations/nederland-tx', {
+      ...catalog, kind, displayName, approvedAliases: ['Old label'],
+    });
+    await assertError(
+      () => saveEventWithConsent.run(request(eventInput({ location: 'Old label' }))),
+      'failed-precondition',
+      { reason: 'INVALID_GENERAL_LOCATION' },
+    );
+    const eventId = `event-${kind}`;
+    await saveEventWithConsent.run(request(eventInput({ eventId, location: displayName })));
+    assert.equal(firestore.records.get(`yardSaleEvents/${eventId}`).location, displayName);
+  }
 });
 
 test('rejects another organizer without partial writes', async t => {
@@ -258,6 +322,36 @@ test('general downgrade revokes the active marker and retains only a private add
   )[1];
   assert.equal(history.action, 'revoked');
   assert.equal(history.addressRevision, 'old-revision');
+});
+
+test('rejects a downgrade with an unapproved public location without revoking consent', async t => {
+  const marker = {
+    organizerUid: 'organizer-1',
+    consentVersion: 'exact-address-v1',
+    addressRevision: 'old-revision',
+    grantedAt: Timestamp.now(),
+  };
+  const firestore = new FakeFirestore(new Map([
+    ['yardSaleEvents/event-1', ownerEvent({ locationVisibility: 'exact', eventVersion: 2 })],
+    ['eventPrivate/event-1', {
+      userId: 'organizer-1', address: '12 Main Street', addressRevision: 'old-revision',
+    }],
+    ['eventAddressConsent/event-1', marker],
+  ]));
+  mockFirestore(t, firestore);
+  await assertError(
+    () => saveEventWithConsent.run(request(eventInput({
+      expectedEventVersion: 2,
+      locationVisibility: 'general',
+      location: '12 Main Street',
+      consentVersion: null,
+      consentConfirmed: false,
+    }))),
+    'failed-precondition',
+    { reason: 'INVALID_GENERAL_LOCATION' },
+  );
+  assert.equal(firestore.writes.length, 0);
+  assert.equal(firestore.records.get('eventAddressConsent/event-1'), marker);
 });
 
 test('rejects stale edits to legacy events that have no eventVersion', async t => {

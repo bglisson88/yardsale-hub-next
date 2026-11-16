@@ -105,6 +105,13 @@ for (const { file, eventWritesAllowed } of SUPPORTED_CONFIGS) {
           }),
           setDoc(doc(db, 'items/chair'), itemDocument()),
           setDoc(doc(db, 'yardSaleEvents/sale'), eventDocument()),
+          setDoc(doc(db, 'generalLocations/nederland'), {
+            kind: 'city', displayName: 'Nederland', active: true,
+            approvedAliases: [], countryCode: 'US', regionCode: 'TX',
+          }),
+          setDoc(doc(db, 'generalLocationAliases/current'), {
+            schemaVersion: 1, aliases: { Nederland: 'nederland' },
+          }),
         ]);
       });
 
@@ -192,9 +199,12 @@ for (const { file, eventWritesAllowed } of SUPPORTED_CONFIGS) {
       assert.equal((await assertSucceeds(getDoc(
         doc(anonymous, 'yardSaleEvents', 'sale'),
       ))).data().title, 'Community sale');
-      await assertFails(getDocs(
-        collection(anonymous, 'yardSaleEvents'),
-      ));
+      const publicEvents = getDocs(collection(anonymous, 'yardSaleEvents'));
+      if (eventWritesAllowed) {
+        assert.equal((await assertSucceeds(publicEvents)).size, 1);
+      } else {
+        await assertFails(publicEvents);
+      }
       const ownerEvents = await assertSucceeds(getDocs(query(
         collection(alice, 'yardSaleEvents'),
         where('userId', '==', aliceUid),

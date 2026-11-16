@@ -154,6 +154,14 @@ deletions revoke the active marker and record history in the same transaction.
 General-event client writes remain supported without `eventVersion`, and
 callable-managed transitions initialize it from zero.
 
+The callable requires a canonical `locationId` and matching `location` from an
+active trusted `generalLocations` record. It validates the record in the same
+transaction as the event write. The frontend searches this catalog rather than
+trusting profile locations. Staging Rules separately support a finite reviewed
+legacy alias index for direct general-event writes; the callable does not accept
+aliases. See `DEPLOYMENT_CHECKLIST.md` for the exact catalog schema, trust
+boundary, rollout, and alias retirement conditions.
+
 The callable code alone does not enforce public read restrictions. Firestore
 Rules must make consent and rate-limit records server-only, validate the
 marker/revision before an anonymous exact-address read, and reject direct
@@ -163,12 +171,17 @@ the repository; do not copy staging or the historical production backup to
 production. Production rules integration remains blocked until that exact
 source is supplied.
 
-### Read-only production event audit
+### Read-only event-data audit
 
-`scripts/audit-production-events.cjs` reports aggregate counts for production
-event/private/consent consistency and whether public documents contain
-address-like fields or coordinates. It does not write data or print event
-addresses or user IDs. It refuses to run without the exact project ID and an
-explicit read-only confirmation flag. Do not run it until separately
-authorized; production event-data audit and any reviewed remediation remain
-deployment prerequisites.
+`scripts/audit-production-events.cjs` accepts only `yardsale-hub-93c49` with
+`--confirm-read-only-production-audit` or `yardsale-hub-staging` with
+`--confirm-read-only-staging-audit`. It rejects unknown or mismatched project
+IDs, conflicting or duplicate project/confirmation arguments, emulator
+configuration, and a conflicting `GCLOUD_PROJECT`. It reports aggregate
+counts for event/private/consent consistency and public sensitive fields; it
+does not write data or print event addresses, coordinates, event IDs, or
+organizer IDs.
+
+Run the staging audit before any staging deployment. Run the production audit
+only after separate authorization and review of the exact production rules
+source and read-only credentials. Neither audit performs remediation.

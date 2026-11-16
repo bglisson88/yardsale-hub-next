@@ -27,6 +27,7 @@ export interface PublicEventInput {
   title: string;
   description: string;
   location: string;
+  locationId: string;
   locationVisibility: EventLocationVisibility;
   address: string;
   startDate: Date;
@@ -43,6 +44,7 @@ export function buildPublicEventData(input: PublicEventInput) {
     title: input.title.trim(),
     description: input.description.trim(),
     location: input.location.trim(),
+    locationId: input.locationId,
     locationVisibility: input.locationVisibility,
     startDate: input.startDate,
     endDate: input.endDate,
