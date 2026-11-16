@@ -68,3 +68,24 @@ jobs:
 
       - name: Run Firestore Emulator rules tests
         run: npm run test:rules
+
+      - name: Compare event audit with Firestore Rules
+        shell: bash
+        run: |
+          output="$RUNNER_TEMP/audit-rules-parity.tap"
+          set +e
+          env -u FIREBASE_EMULATOR_HUB -u FIRESTORE_EMULATOR_HOST \
+            -u FIREBASE_DATABASE_EMULATOR_HOST -u FIREBASE_STORAGE_EMULATOR_HOST \
+            -u FIREBASE_AUTH_EMULATOR_HOST -u FUNCTIONS_EMULATOR_HOST \
+            -u FIREBASE_EMULATORS_PATH \
+            ./node_modules/.bin/firebase emulators:exec \
+            --project demo-yardsale-hub --only firestore \
+            'env -u FIREBASE_EMULATOR_HUB node --test --test-reporter=tap --test-name-pattern="^tracked Rules agree with representative conservative assessments$" functions/test/audit-production-events.test.cjs > "$RUNNER_TEMP/audit-rules-parity.tap"'
+          status=$?
+          set -e
+          if [ -f "$output" ]; then cat "$output"; fi
+          if [ "$status" -ne 0 ]; then exit "$status"; fi
+          if ! grep -Eq '^ok [0-9]+ - tracked Rules agree with representative conservative assessments$' "$output"; then
+            echo "::error::Audit comparison was skipped or not found."
+            exit 1
+          fi
