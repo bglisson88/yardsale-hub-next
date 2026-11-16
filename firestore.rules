@@ -72,8 +72,8 @@ service cloud.firestore {
         ])
         && data.keys().hasOnly([
           'userId', 'title', 'description', 'location', 'locationVisibility',
-          'address', 'startDate', 'endDate', 'photoURL', 'createdAt',
-          'updatedAt', 'itemCount'
+          'startDate', 'endDate', 'photoURL', 'createdAt', 'updatedAt',
+          'itemCount'
         ])
         && data.userId is string
         && data.title is string
@@ -91,17 +91,7 @@ service cloud.firestore {
         && data.createdAt is timestamp
         && data.updatedAt is timestamp
         && data.itemCount is int
-        && data.itemCount >= 0
-        && (
-          (data.locationVisibility == 'general'
-            && !data.keys().hasAny(['address']))
-          ||
-          (data.locationVisibility == 'exact'
-            && data.keys().hasAny(['address'])
-            && data.address is string
-            && data.address.size() > 0
-            && data.address.size() <= 300)
-        );
+        && data.itemCount >= 0;
     }
 
     function validPrivateEvent(eventId, data) {
@@ -115,13 +105,7 @@ service cloud.firestore {
         && data.address.size() > 0
         && data.address.size() <= 300
         && publicEvent.userId == request.auth.uid
-        && (
-          publicEvent.locationVisibility == 'general'
-          || (
-            publicEvent.locationVisibility == 'exact'
-            && publicEvent.address == data.address
-          )
-        );
+        && validEvent(publicEvent);
     }
 
     function validMessage(data) {
@@ -159,6 +143,24 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /publicProfiles/{uid} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    match /usernameClaims/{canonicalUsername} {
+      allow read, write: if false;
+    }
+
+    match /usernameState/{uid} {
+      allow read, write: if false;
+    }
+
+    match /reservedUsernames/{canonicalUsername} {
+      allow read, write: if false;
+    }
+
     match /items/{itemId} {
       allow read: if true;
 
@@ -185,13 +187,10 @@ service cloud.firestore {
     }
 
     match /yardSaleEvents/{eventId} {
-      // Older records without locationVisibility must be migrated before
-      // public queries are enabled. Firestore cannot use per-document rule
-      // checks as a query filter, so public listing reads require migration
-      // to remove private fields from every document first.
       allow get: if validEvent(resource.data)
         || owns(resource.data.userId);
-      allow list: if true;
+      allow list: if signedIn()
+        && resource.data.userId == request.auth.uid;
 
       allow create: if signedIn()
         && validEvent(request.resource.data)
@@ -206,10 +205,13 @@ service cloud.firestore {
             )
             && getAfter(
               /databases/$(database)/documents/eventPrivate/$(eventId)
-            ).data.address == request.resource.data.address
+            ).data.userId == request.auth.uid
             && getAfter(
               /databases/$(database)/documents/eventPrivate/$(eventId)
-            ).data.userId == request.auth.uid
+            ).data.address is string
+            && getAfter(
+              /databases/$(database)/documents/eventPrivate/$(eventId)
+            ).data.address.size() > 0
           )
         );
 
@@ -227,15 +229,19 @@ service cloud.firestore {
         && (
           request.resource.data.locationVisibility == 'general'
           || (
-            existsAfter(
+            request.resource.data.locationVisibility == 'exact'
+            && existsAfter(
               /databases/$(database)/documents/eventPrivate/$(eventId)
             )
             && getAfter(
               /databases/$(database)/documents/eventPrivate/$(eventId)
-            ).data.address == request.resource.data.address
+            ).data.userId == request.auth.uid
             && getAfter(
               /databases/$(database)/documents/eventPrivate/$(eventId)
-            ).data.userId == request.auth.uid
+            ).data.address is string
+            && getAfter(
+              /databases/$(database)/documents/eventPrivate/$(eventId)
+            ).data.address.size() > 0
           )
         );
 
@@ -244,16 +250,35 @@ service cloud.firestore {
     }
 
     match /eventPrivate/{eventId} {
-      allow get: if signedIn()
-        && (
-          (resource == null
-            && get(
-              /databases/$(database)/documents/yardSaleEvents/$(eventId)
-            ).data.userId == request.auth.uid)
-          || (
-            resource != null
-            && resource.data.userId == request.auth.uid
+      allow get: if (
+          signedIn()
+          && resource != null
+          && resource.data.userId == request.auth.uid
+        )
+        || (
+          resource != null
+          && exists(
+            /databases/$(database)/documents/yardSaleEvents/$(eventId)
           )
+          && get(
+            /databases/$(database)/documents/yardSaleEvents/$(eventId)
+          ).data.locationVisibility == 'exact'
+          && validEvent(get(
+            /databases/$(database)/documents/yardSaleEvents/$(eventId)
+          ).data)
+          && resource.data.userId == get(
+            /databases/$(database)/documents/yardSaleEvents/$(eventId)
+          ).data.userId
+        )
+        || (
+          signedIn()
+          && resource == null
+          && exists(
+            /databases/$(database)/documents/yardSaleEvents/$(eventId)
+          )
+          && get(
+            /databases/$(database)/documents/yardSaleEvents/$(eventId)
+          ).data.userId == request.auth.uid
         );
       allow list: if false;
 

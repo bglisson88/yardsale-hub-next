@@ -48,15 +48,23 @@ test('general event without a private address is valid', () => {
   assert.equal(buildPublicEventData(eventInput()).locationVisibility, 'general');
 });
 
-test('exact event publishes the confirmed address but never placeholder coordinates', () => {
-  const data = buildPublicEventData(eventInput({
+test('exact event keeps its confirmed address private', () => {
+  const input = eventInput({
     locationVisibility: 'exact',
     address: ' 12 Main Street ',
-  }));
-  assert.equal(data.address, '12 Main Street');
+  });
+  const data = buildPublicEventData(input);
+
   assert.equal(data.locationVisibility, 'exact');
+  assert.equal(data.location, 'Nederland');
+  assert.equal('address' in data, false);
   assert.equal('latitude' in data, false);
   assert.equal('longitude' in data, false);
+
+  assert.deepEqual(buildPrivateEventData('organizer', input.address), {
+    userId: 'organizer',
+    address: '12 Main Street',
+  });
 });
 
 test('exact event requires a non-empty address', () => {

@@ -246,9 +246,9 @@ export default function EventForm({ eventId }: { eventId?: string }) {
       if (eventId) {
         batch.update(eventRef, {
           ...publicData,
+          address: deleteField(),
           latitude: deleteField(),
           longitude: deleteField(),
-          ...(values.locationVisibility === 'general' ? { address: deleteField() } : {}),
         });
       } else {
         batch.set(eventRef, publicData);

@@ -52,12 +52,11 @@ export function buildPublicEventData(input: PublicEventInput) {
     itemCount: input.itemCount,
   };
 
-  if (input.locationVisibility === 'exact') {
-    const address = input.address.trim();
-    if (!address) throw new Error('Enter the exact sale address to publish it.');
-    return { ...event, address };
+  if (input.locationVisibility === 'exact' && !input.address.trim()) {
+    throw new Error('Enter the exact sale address to publish it.');
   }
 
+  // Street addresses belong exclusively in eventPrivate.
   return event;
 }
 

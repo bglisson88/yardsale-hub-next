@@ -24,6 +24,35 @@ function ItemDetail({ id }: { id: string }) {
   const { user, loading: authLoading } = useAuthStore();
   const [state, setState] = useState<ListingState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
+  const [sellerProfile, setSellerProfile] = useState<{ sellerId: string; username: string } | null>(null);
+  const sellerId = state.status === 'ready' ? state.item.sellerId : null;
+
+  useEffect(() => {
+    setSellerProfile(null);
+    if (!sellerId) return;
+
+    let active = true;
+    const unsubscribe = onSnapshot(
+      doc(db, 'publicProfiles', sellerId),
+      snapshot => {
+        if (!active) return;
+        const username = snapshot.data()?.username;
+        setSellerProfile(
+          typeof username === 'string' && /^[A-Za-z0-9_]{3,20}$/.test(username)
+            ? { sellerId, username }
+            : null
+        );
+      },
+      () => {
+        if (active) setSellerProfile(null);
+      }
+    );
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [sellerId]);
 
   useEffect(() => {
     if (!validItemId(id)) {
@@ -97,7 +126,7 @@ function ItemDetail({ id }: { id: string }) {
           {item.description && <section className="mt-6"><h2 className="font-semibold text-lg">Description</h2><p className="mt-2 whitespace-pre-wrap break-words text-gray-700">{item.description}</p></section>}
           <section aria-label="Seller" className="mt-8 border-t border-gray-200 pt-6">
             <h2 className="text-lg font-semibold">Seller</h2>
-            <p className="mt-2 text-gray-600">{owner ? 'You are the seller.' : 'YardSale Hub member.'}</p>
+            <p className="mt-2 text-gray-600">{sellerProfile?.sellerId === sellerId ? sellerProfile.username : 'YardSale Hub member.'}</p>
             {owner ? (
               <Link href={`/items/${encodeURIComponent(id)}/edit`} className="inline-block mt-4 rounded-lg bg-blue-600 px-5 py-3 font-semibold text-white hover:bg-blue-700">Edit Listing</Link>
             ) : !item.sellerId ? (

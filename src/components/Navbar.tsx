@@ -6,7 +6,8 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { signOut } from 'firebase/auth';
 import toast from 'react-hot-toast';
-import { auth } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { useAuthContext } from '@/hooks';
 import { useAuthStore } from '@/store';
 import { Avatar } from './Avatar';
@@ -15,6 +16,7 @@ import { Logo } from './Logo';
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [publicProfileName, setPublicProfileName] = useState<{ uid: string; username: string } | null>(null);
   const navigationRef = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const accountButtonRef = useRef<HTMLButtonElement>(null);
@@ -28,6 +30,38 @@ export function Navbar() {
     setMenuOpen(false);
     setIsOpen(false);
   }, [pathname, user?.id]);
+
+  useEffect(() => {
+    setPublicProfileName(null);
+    if (!user?.id) return;
+
+    const uid = user.id;
+    let active = true;
+
+    const unsubscribe = onSnapshot(
+      doc(db, 'publicProfiles', uid),
+      snapshot => {
+        if (!active) return;
+        const username = snapshot.data()?.username;
+        setPublicProfileName(
+          typeof username === 'string' && username
+            ? { uid, username }
+            : null
+        );
+      },
+      () => {
+        if (active) setPublicProfileName(null);
+      },
+    );
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [user?.id]);
+
+  const publicUsername =
+    publicProfileName && user && publicProfileName.uid === user.id ? publicProfileName.username : null;
 
   useEffect(() => {
     const onPointer = (event: PointerEvent) => {
@@ -110,13 +144,13 @@ export function Navbar() {
                   aria-label="Open account menu"
                   className="flex items-center gap-1 rounded-full ring-2 ring-slate-600 hover:ring-emerald-400 transition p-0.5"
                 >
-                  <Avatar src={user.photoURL} name={user.displayName} size={36} />
+                  <Avatar src={user.photoURL} name={publicUsername ?? ""} size={36} />
                   <ChevronDown size={14} className="text-slate-300 mr-1" aria-hidden="true" />
                 </button>
                 {menuOpen && (
                   <div id="account-navigation" className="absolute right-0 mt-2 w-52 bg-slate-900 rounded-xl shadow-xl border border-slate-700 py-2">
                     <div className="px-4 pb-2 mb-1 border-b border-slate-700">
-                      <p className="font-semibold text-white truncate">{user.displayName}</p>
+                      <p className="font-semibold text-white truncate">{publicUsername ?? "Username unavailable"}</p>
                       <p className="text-xs text-slate-300 truncate">{user.email}</p>
                     </div>
                     {menuLinks.map((link) => (
@@ -151,9 +185,9 @@ export function Navbar() {
           <div id="mobile-navigation" className="lg:hidden max-h-[calc(100dvh-6rem)] overflow-y-auto border-t border-slate-800 py-3 space-y-1">
             {user && (
               <div className="flex items-center gap-3 px-4 py-3 mb-2 bg-slate-800 rounded-xl">
-                <Avatar src={user.photoURL} name={user.displayName} size={40} />
+                <Avatar src={user.photoURL} name={publicUsername ?? ""} size={40} />
                 <div className="min-w-0">
-                  <p className="font-semibold text-white truncate">{user.displayName}</p>
+                  <p className="font-semibold text-white truncate">{publicUsername ?? "Username unavailable"}</p>
                   <p className="text-xs text-slate-300 truncate">{user.email}</p>
                 </div>
               </div>

@@ -1,9 +1,58 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Users collection - anyone can read, only owner can write
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function owns(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function validEvent(data) {
+      return data.keys().hasAll([
+          'userId', 'title', 'description', 'location', 'locationVisibility',
+          'startDate', 'endDate', 'photoURL', 'createdAt', 'updatedAt',
+          'itemCount'
+        ])
+        && data.keys().hasOnly([
+          'userId', 'title', 'description', 'location', 'locationVisibility',
+          'address', 'startDate', 'endDate', 'photoURL', 'createdAt',
+          'updatedAt', 'itemCount'
+        ])
+        && data.userId is string
+        && data.title is string
+        && data.title.size() > 0
+        && data.title.size() <= 120
+        && data.description is string
+        && data.description.size() <= 5000
+        && data.location is string
+        && data.location.size() > 0
+        && data.locationVisibility in ['general', 'exact']
+        && data.startDate is timestamp
+        && data.endDate is timestamp
+        && data.endDate > data.startDate
+        && (data.photoURL == null || data.photoURL is string)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && data.itemCount is int
+        && data.itemCount >= 0
+        && (
+          (data.locationVisibility == 'general'
+            && !data.keys().hasAny(['address']))
+          ||
+          (data.locationVisibility == 'exact'
+            && data.keys().hasAny(['address'])
+            && data.address is string
+            && data.address.size() > 0
+            && data.address.size() <= 300)
+        );
+    }
+
+    // Users collection - owner-only reads; keep existing write policies
     match /users/{userId} {
-      allow read: if true;
+      allow get: if request.auth != null && request.auth.uid == userId;
+      allow list: if false;
       allow create: if request.auth.uid == userId;
       allow update: if request.auth.uid == userId ||
                        (request.auth != null &&
@@ -13,6 +62,24 @@ service cloud.firestore {
       allow delete: if request.auth.uid == userId;
     }
 
+    match /publicProfiles/{uid} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    match /usernameClaims/{canonicalUsername} {
+      allow read, write: if false;
+    }
+
+    match /usernameState/{uid} {
+      allow read, write: if false;
+    }
+
+    match /reservedUsernames/{canonicalUsername} {
+      allow read, write: if false;
+    }
+
     // Items collection - anyone can read, only creator can write
     match /items/{itemId} {
       allow read: if true;
@@ -20,9 +87,10 @@ service cloud.firestore {
       allow update, delete: if request.auth.uid == resource.data.userId;
     }
 
-    // Yard Sale Events - anyone can read, only creator can write
     match /yardSaleEvents/{eventId} {
-      allow read: if true;
+      allow get: if validEvent(resource.data)
+        || owns(resource.data.userId);
+      allow list: if owns(resource.data.userId);
       allow create, update, delete: if false;
     }
 

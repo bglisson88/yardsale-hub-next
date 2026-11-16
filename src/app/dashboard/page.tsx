@@ -9,7 +9,7 @@ import { auth, db } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { User, Package, Calendar } from 'lucide-react';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
 
 export default function Dashboard() {
   const { user, loading } = useAuthStore();
@@ -17,6 +17,7 @@ export default function Dashboard() {
   const router = useRouter();
   const [itemCount, setItemCount] = useState(0);
   const [eventCount, setEventCount] = useState(0);
+  const [publicUsername, setPublicUsername] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !user) router.replace('/auth/login?returnTo=%2Fdashboard');
@@ -42,6 +43,20 @@ export default function Dashboard() {
     };
   }, [user?.id]);
 
+  useEffect(() => {
+    setPublicUsername(null);
+    if (!user?.id) return;
+
+    return onSnapshot(
+      doc(db, 'publicProfiles', user.id),
+      snapshot => {
+        const username = snapshot.data()?.username;
+        setPublicUsername(typeof username === 'string' && username ? username : null);
+      },
+      () => setPublicUsername(null),
+    );
+  }, [user?.id]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -63,7 +78,7 @@ export default function Dashboard() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">My Dashboard</h1>
-        <p className="text-gray-600 mt-2">Welcome, {user.displayName}!</p>
+        <p className="text-gray-600 mt-2">Welcome{publicUsername ? `, ${publicUsername}` : ""}!</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
@@ -75,7 +90,7 @@ export default function Dashboard() {
             </div>
             <div>
               <p className="text-sm text-gray-600">Profile</p>
-              <p className="font-semibold text-gray-900">{user.displayName}</p>
+              <p className="font-semibold text-gray-900">{publicUsername ?? "Username unavailable"}</p>
             </div>
           </div>
           <Link href="/dashboard/profile" className="absolute inset-0 rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"><span className="sr-only">View profile</span></Link>

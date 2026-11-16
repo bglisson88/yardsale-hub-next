@@ -1,7 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { collection, query, where, orderBy, onSnapshot, addDoc, Timestamp } from 'firebase/firestore';
+import { useState, useEffect, useRef } from 'react';
+import {
+  collection,
+  doc,
+  query,
+  where,
+  orderBy,
+  onSnapshot,
+  addDoc,
+  Timestamp,
+} from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuthStore } from '@/store';
 import { useAuthContext } from '@/hooks';
@@ -16,85 +25,366 @@ interface ConversationUser {
   photoURL: string | null;
 }
 
+interface MessagingState {
+  ownerId: string;
+  conversations: ConversationUser[];
+  selectedUserId: string | null;
+  messages: {
+    recipientId: string;
+    items: Message[];
+  } | null;
+  messageText: string;
+  loading: boolean;
+}
+
+function initialMessagingState(ownerId: string): MessagingState {
+  return {
+    ownerId,
+    conversations: [],
+    selectedUserId: null,
+    messages: null,
+    messageText: '',
+    loading: true,
+  };
+}
+
 export default function Messages() {
   const { user, loading: authLoading } = useAuthStore();
   useAuthContext();
-  const [conversations, setConversations] = useState<ConversationUser[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [messageText, setMessageText] = useState('');
-  const [loading, setLoading] = useState(true);
+
+  const [messagingState, setMessagingState] =
+    useState<MessagingState | null>(null);
   const [sending, setSending] = useState(false);
+  const sendingOwnerRef = useRef<string | null>(null);
+
+  const ownerId = user?.id ?? null;
+  const activeOwnerRef = useRef(ownerId);
+  activeOwnerRef.current = ownerId;
+
+  // Never expose state belonging to a different signed-in account.
+  const currentState =
+    ownerId && messagingState?.ownerId === ownerId
+      ? messagingState
+      : null;
+
+  const selectedUserId = currentState?.selectedUserId ?? null;
+  const messageText = currentState?.messageText ?? '';
+
+  const messages =
+    currentState?.messages?.recipientId === selectedUserId
+      ? currentState.messages.items
+      : [];
 
   useEffect(() => {
-    if (!user?.id) return;
+    sendingOwnerRef.current = null;
+    setSending(false);
 
-    // Fetch conversations
+    if (!ownerId) {
+      setMessagingState(null);
+      return;
+    }
+
+    const uid = ownerId;
+    let active = true;
+
+    setMessagingState(initialMessagingState(uid));
+
     const q = query(
       collection(db, 'messages'),
-      where('senderId', '==', user.id)
+      where('senderId', '==', uid)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const userIds = new Set<string>();
-      snapshot.forEach((doc) => {
-        userIds.add(doc.data().recipientId);
-      });
-      setConversations(Array.from(userIds).map((id) => ({
-        id,
-        displayName: 'User',
-        photoURL: null,
-      })));
-      setLoading(false);
-    });
+    const profileListeners = new Map<
+      string,
+      { stop: () => void; deactivate: () => void }
+    >();
 
-    return () => unsubscribe();
-  }, [user?.id]);
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        if (!active) return;
+
+        const userIds = new Set<string>();
+
+        snapshot.forEach((messageDoc) => {
+          const recipientId = messageDoc.data().recipientId;
+
+          if (typeof recipientId === 'string' && recipientId) {
+            userIds.add(recipientId);
+          }
+        });
+
+        for (const [id, listener] of profileListeners) {
+          if (!userIds.has(id)) {
+            listener.deactivate();
+            profileListeners.delete(id);
+            listener.stop();
+          }
+        }
+
+        setMessagingState((previous) => {
+          if (!previous || previous.ownerId !== uid) {
+            return previous;
+          }
+
+          const conversations = Array.from(userIds).map((id) => {
+            const existing = previous.conversations.find(
+              (conversation) => conversation.id === id
+            );
+
+            return (
+              existing ?? {
+                id,
+                displayName: 'Username unavailable',
+                photoURL: null,
+              }
+            );
+          });
+
+          const selectionStillExists =
+            previous.selectedUserId !== null &&
+            userIds.has(previous.selectedUserId);
+
+          return {
+            ...previous,
+            conversations,
+            selectedUserId: selectionStillExists
+              ? previous.selectedUserId
+              : null,
+            messages: selectionStillExists
+              ? previous.messages
+              : null,
+            messageText: selectionStillExists
+              ? previous.messageText
+              : '',
+            loading: false,
+          };
+        });
+
+        for (const id of userIds) {
+          if (profileListeners.has(id)) continue;
+
+          let listenerActive = true;
+
+          const updateUsername = (username: string) => {
+            if (!active || !listenerActive) return;
+
+            setMessagingState((previous) => {
+              if (!previous || previous.ownerId !== uid) {
+                return previous;
+              }
+
+              return {
+                ...previous,
+                conversations: previous.conversations.map(
+                  (conversation) =>
+                    conversation.id === id
+                      ? { ...conversation, displayName: username }
+                      : conversation
+                ),
+              };
+            });
+          };
+
+          const stopListening = onSnapshot(
+            doc(db, 'publicProfiles', id),
+            (profileSnapshot) => {
+              const username = profileSnapshot.data()?.username;
+
+              updateUsername(
+                typeof username === 'string' && username
+                  ? username
+                  : 'Username unavailable'
+              );
+            },
+            () => updateUsername('Username unavailable')
+          );
+
+          profileListeners.set(id, {
+            stop: stopListening,
+            deactivate: () => {
+              listenerActive = false;
+            },
+          });
+        }
+      },
+      () => {
+        if (!active) return;
+
+        setMessagingState((previous) =>
+          previous?.ownerId === uid
+            ? { ...previous, loading: false }
+            : previous
+        );
+      }
+    );
+
+    return () => {
+      active = false;
+      unsubscribe();
+
+      for (const listener of profileListeners.values()) {
+        listener.deactivate();
+        listener.stop();
+      }
+
+      profileListeners.clear();
+    };
+  }, [ownerId]);
 
   useEffect(() => {
-    if (!user?.id || !selectedUserId) return;
+    if (!ownerId || !currentState || !selectedUserId) {
+      return;
+    }
+
+    const uid = ownerId;
+    const recipientId = selectedUserId;
+    let active = true;
 
     const q = query(
       collection(db, 'messages'),
-      where('senderId', '==', user.id),
-      where('recipientId', '==', selectedUserId),
+      where('senderId', '==', uid),
+      where('recipientId', '==', recipientId),
       orderBy('createdAt', 'asc')
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (!active) return;
+
       const messagesList: Message[] = [];
-      snapshot.forEach((doc) => {
+
+      snapshot.forEach((messageDoc) => {
         messagesList.push({
-          ...doc.data(),
-          id: doc.id,
-          createdAt: doc.data().createdAt?.toDate(),
+          ...messageDoc.data(),
+          id: messageDoc.id,
+          createdAt: messageDoc.data().createdAt?.toDate(),
         } as Message);
       });
-      setMessages(messagesList);
+
+      setMessagingState((previous) => {
+        if (
+          !previous ||
+          previous.ownerId !== uid ||
+          previous.selectedUserId !== recipientId
+        ) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          messages: {
+            recipientId,
+            items: messagesList,
+          },
+        };
+      });
     });
 
-    return () => unsubscribe();
-  }, [user?.id, selectedUserId]);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [ownerId, selectedUserId, Boolean(currentState)]);
+
+  const selectConversation = (recipientId: string) => {
+    if (!ownerId) return;
+
+    setMessagingState((previous) => {
+      if (
+        !previous ||
+        previous.ownerId !== ownerId ||
+        !previous.conversations.some(
+          (conversation) => conversation.id === recipientId
+        )
+      ) {
+        return previous;
+      }
+
+      if (previous.selectedUserId === recipientId) {
+        return previous;
+      }
+
+      return {
+        ...previous,
+        selectedUserId: recipientId,
+        messages: null,
+        messageText: '',
+      };
+    });
+  };
+
+  const updateMessageText = (value: string) => {
+    if (!ownerId) return;
+
+    setMessagingState((previous) =>
+      previous?.ownerId === ownerId
+        ? { ...previous, messageText: value }
+        : previous
+    );
+  };
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!messageText.trim() || !selectedUserId || !user?.id) return;
 
+    if (
+      !ownerId ||
+      !currentState ||
+      !selectedUserId ||
+      !messageText.trim() ||
+      sendingOwnerRef.current === ownerId
+    ) {
+      return;
+    }
+
+    const senderId = ownerId;
+    const recipientId = selectedUserId;
+    const text = messageText;
+
+    sendingOwnerRef.current = senderId;
     setSending(true);
+
     try {
       await addDoc(collection(db, 'messages'), {
-        senderId: user.id,
-        recipientId: selectedUserId,
-        text: messageText,
+        senderId,
+        recipientId,
+        text,
         createdAt: Timestamp.now(),
         read: false,
       });
-      setMessageText('');
-      toast.success('Message sent!');
-    } catch (error: any) {
-      toast.error('Failed to send message');
+
+      setMessagingState((previous) => {
+        if (
+          !previous ||
+          previous.ownerId !== senderId ||
+          previous.selectedUserId !== recipientId
+        ) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          messageText:
+            previous.messageText === text
+              ? ''
+              : previous.messageText,
+        };
+      });
+
+      if (activeOwnerRef.current === senderId) {
+        toast.success('Message sent!');
+      }
+    } catch {
+      if (activeOwnerRef.current === senderId) {
+        toast.error('Failed to send message');
+      }
     } finally {
-      setSending(false);
+      if (
+        activeOwnerRef.current === senderId &&
+        sendingOwnerRef.current === senderId
+      ) {
+        sendingOwnerRef.current = null;
+        setSending(false);
+      }
     }
   };
 
@@ -107,7 +397,19 @@ export default function Messages() {
   }
 
   if (!user) {
-    return <div className="text-center py-12">Please sign in to view messages</div>;
+    return (
+      <div className="text-center py-12">
+        Please sign in to view messages
+      </div>
+    );
+  }
+
+  if (!currentState) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <LoadingSpinner />
+      </div>
+    );
   }
 
   return (
@@ -118,23 +420,30 @@ export default function Messages() {
           <div className="p-4 border-b border-gray-200">
             <h2 className="font-bold text-lg">Messages</h2>
           </div>
-          {loading ? (
+
+          {currentState.loading ? (
             <div className="flex items-center justify-center h-full">
               <LoadingSpinner />
             </div>
-          ) : conversations.length === 0 ? (
-            <div className="p-4 text-center text-gray-500">No conversations yet</div>
+          ) : currentState.conversations.length === 0 ? (
+            <div className="p-4 text-center text-gray-500">
+              No conversations yet
+            </div>
           ) : (
             <div className="overflow-y-auto">
-              {conversations.map((conv) => (
+              {currentState.conversations.map((conv) => (
                 <button
                   key={conv.id}
-                  onClick={() => setSelectedUserId(conv.id)}
+                  onClick={() => selectConversation(conv.id)}
                   className={`w-full p-4 border-b border-gray-100 text-left hover:bg-gray-50 transition ${
-                    selectedUserId === conv.id ? 'bg-blue-50 border-l-4 border-l-blue-600' : ''
+                    selectedUserId === conv.id
+                      ? 'bg-blue-50 border-l-4 border-l-blue-600'
+                      : ''
                   }`}
                 >
-                  <p className="font-semibold text-sm">{conv.displayName}</p>
+                  <p className="font-semibold text-sm">
+                    {conv.displayName}
+                  </p>
                 </button>
               ))}
             </div>
@@ -148,9 +457,17 @@ export default function Messages() {
               <div className="p-4 border-b border-gray-200">
                 <p className="font-semibold">Conversation</p>
               </div>
+
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {messages.map((msg) => (
-                  <div key={msg.id} className={`flex ${msg.senderId === user.id ? 'justify-end' : 'justify-start'}`}>
+                  <div
+                    key={msg.id}
+                    className={`flex ${
+                      msg.senderId === user.id
+                        ? 'justify-end'
+                        : 'justify-start'
+                    }`}
+                  >
                     <div
                       className={`max-w-xs px-4 py-2 rounded-lg ${
                         msg.senderId === user.id
@@ -166,14 +483,21 @@ export default function Messages() {
                   </div>
                 ))}
               </div>
-              <form onSubmit={handleSendMessage} className="p-4 border-t border-gray-200 flex gap-2">
+
+              <form
+                onSubmit={handleSendMessage}
+                className="p-4 border-t border-gray-200 flex gap-2"
+              >
                 <input
                   type="text"
                   value={messageText}
-                  onChange={(e) => setMessageText(e.target.value)}
+                  onChange={(e) =>
+                    updateMessageText(e.target.value)
+                  }
                   placeholder="Type a message..."
                   className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+
                 <button
                   type="submit"
                   disabled={sending || !messageText.trim()}
