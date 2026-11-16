@@ -76,8 +76,13 @@ test('dashboard collections query only the signed-in owner and include sold item
     const hooks = {
       useState(initial) {
         const index = cursor++;
-        if (!(index in state)) state[index] = initial;
+        if (!(index in state)) state[index] = typeof initial === 'function' ? initial() : initial;
         return [state[index], value => { state[index] = typeof value === 'function' ? value(state[index]) : value; }];
+      },
+      useRef(initial) {
+        const index = cursor++;
+        if (!(index in state)) state[index] = { current: initial };
+        return state[index];
       },
       useEffect(effect) { effects.push(effect); },
     };
@@ -130,7 +135,7 @@ test('dashboard collections query only the signed-in owner and include sold item
 });
 
 function deletion(options = {}) {
-  const removed = [];
+  const calls = [];
   const deletedPhotos = [];
   let referenceQueries = 0;
   const event = { userId: 'owner', photoURL: options.photoURL || null };
@@ -141,11 +146,11 @@ function deletion(options = {}) {
       doc: (_, collection, id) => `${collection}/${id}`,
       getDoc: async ref => ref.startsWith('eventPrivate/')
         ? { exists: () => options.privateExists !== false, data: () => privateData }
-        : { exists: () => options.eventExists !== false, data: () => ({ ...event, userId: options.owner || 'owner' }) },
-      writeBatch: () => ({
-        delete: ref => removed.push(ref),
-        commit: async () => { if (options.commitError) throw new Error('write failed'); },
-      }),
+        : { exists: () => options.eventExists !== false, data: () => ({
+          ...event,
+          userId: options.owner || 'owner',
+          eventVersion: options.eventVersion ?? 0,
+        }) },
       collection: (_, name) => name,
       where: (...args) => args,
       query: (collection, constraint) => ({ collection, constraint }),
@@ -162,12 +167,22 @@ function deletion(options = {}) {
         deletedPhotos.push(photo.fullPath);
       },
     },
-    '@/lib/firebase': { db: {}, storage: {} },
+    'firebase/functions': {
+      httpsCallable: (_functions, name) => async data => {
+        calls.push([name, data]);
+        if (options.commitError) throw new Error('write failed');
+        return { data: { eventId: data.eventId, deleted: true } };
+      },
+    },
+    '@/lib/firebase': { db: {}, storage: {}, functions: {} },
   };
-  const { deleteOwnedEvent } = load('src/lib/delete-event.ts', mocks, { console: { error() {} } });
+  const { deleteOwnedEvent } = load('src/lib/delete-event.ts', mocks, {
+    console: { error() {} },
+    crypto: { randomUUID: () => '123e4567-e89b-42d3-a456-426614174000' },
+  });
   return {
     run: () => deleteOwnedEvent('event1', 'owner'),
-    removed,
+    calls,
     deletedPhotos,
     get referenceQueries() { return referenceQueries; },
   };
@@ -175,23 +190,31 @@ function deletion(options = {}) {
 
 const scopedPhoto = 'events/owner/event1_123e4567-e89b-42d3-a456-426614174000_photo.jpg';
 
-test('event deletion checks ownership and atomically removes public and private records', async () => {
+test('event deletion checks ownership and calls the server-side consent transaction', async () => {
   const own = deletion({ photoURL: scopedPhoto });
   assert.equal(
     await own.run(),
     'Event deleted. Its photo was retained; cleanup is deferred until references can be checked safely.',
   );
-  assert.deepEqual(own.removed, ['yardSaleEvents/event1', 'eventPrivate/event1']);
+  assert.equal(own.calls.length, 1);
+  assert.equal(own.calls[0][0], 'deleteEventWithConsent');
+  assert.equal(own.calls[0][1].eventId, 'event1');
+  assert.equal(own.calls[0][1].expectedEventVersion, 0);
+  assert.equal(own.calls[0][1].expectedUpdatedAtMs, null);
+  assert.match(own.calls[0][1].operationId, /^[0-9a-f-]{36}$/);
   assert.deepEqual(own.deletedPhotos, []);
   assert.equal(own.referenceQueries, 0);
   const noPrivate = deletion({ privateExists: false });
   await noPrivate.run();
-  assert.deepEqual(noPrivate.removed, ['yardSaleEvents/event1']);
-  for (const options of [{ owner: 'other' }, { privateOwner: 'other' }, { eventExists: false }]) {
+  assert.equal(noPrivate.calls.length, 1);
+  for (const options of [{ owner: 'other' }, { privateOwner: 'other' }]) {
     const denied = deletion(options);
     await assert.rejects(denied.run());
-    assert.deepEqual(denied.removed, []);
+    assert.deepEqual(denied.calls, []);
   }
+  const alreadyDeleted = deletion({ eventExists: false });
+  assert.match(await alreadyDeleted.run(), /already deleted/);
+  assert.deepEqual(alreadyDeleted.calls, []);
 });
 
 test('event deletion retains photos without a safe global reference check', async () => {
@@ -209,6 +232,9 @@ test('event deletion retains photos without a safe global reference check', asyn
 
   const failure = deletion({ photoURL: scopedPhoto, commitError: true });
   await assert.rejects(failure.run(), /Could not confirm event deletion/);
+  await assert.rejects(failure.run(), /Could not confirm event deletion/);
+  assert.equal(failure.calls.length, 2);
+  assert.equal(failure.calls[0][1].operationId, failure.calls[1][1].operationId);
   assert.deepEqual(failure.deletedPhotos, []);
 });
 
@@ -320,8 +346,13 @@ async function eventForm(eventId = 'event1') {
   const hooks = {
     useState(initial) {
       const index = cursor++;
-      if (!(index in state)) state[index] = initial;
+      if (!(index in state)) state[index] = typeof initial === 'function' ? initial() : initial;
       return [state[index], value => { state[index] = typeof value === 'function' ? value(state[index]) : value; }];
+    },
+    useRef(initial) {
+      const index = cursor++;
+      if (!(index in state)) state[index] = { current: initial };
+      return state[index];
     },
     useEffect(effect, deps) {
       const index = cursor++;
@@ -336,7 +367,8 @@ async function eventForm(eventId = 'event1') {
     'next/link': { __esModule: true, default: 'a' },
     'next/navigation': { useRouter: () => ({ push: path => pushes.push(path), replace() {} }) },
     'firebase/firestore': {
-      doc: (_, name) => name,
+      collection: () => 'collection',
+      doc: (...args) => args.length === 1 ? { id: 'new-event' } : args[1],
       getDoc: async name => name === 'yardSaleEvents'
         ? { exists: () => true, data: () => data, id: 'event1' }
         : { exists: () => true, data: () => ({ address: 'private address' }) },

@@ -9,6 +9,7 @@ const sources = [
   'src/lib/discovery.ts',
   'src/lib/event-data.ts',
   'src/lib/signup.ts',
+  'src/lib/username-rate-limit.ts',
 ];
 const tests = [
   'tests/categories.test.cjs',
@@ -20,6 +21,7 @@ const tests = [
   'tests/selectors.test.cjs',
   'tests/usability.test.cjs',
   'tests/signup.test.cjs',
+  'tests/username-rate-limit.test.cjs',
   'tests/messages.test.cjs',
 ];
 

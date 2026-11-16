@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   collection, deleteField, doc, getDoc, writeBatch,
 } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import { ref, uploadBytes, getDownloadURL, deleteObject, type StorageReference } from 'firebase/storage';
-import { auth, db, storage } from '@/lib/firebase';
+import { auth, db, functions, storage } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -43,6 +44,17 @@ const emptyForm = (location = ''): EventFormValues => ({
   endTime: '',
 });
 
+const EXACT_ADDRESS_CONSENT_VERSION = 'exact-address-v1';
+const EXACT_ADDRESS_CONSENT_TEXT =
+  "I understand that choosing to publish this event's exact address will make the address visible to everyone, including visitors who are not signed in. I confirm that I am authorized to share this address publicly.";
+
+interface PendingExactSave {
+  fingerprint: string;
+  operationId: string;
+  photoFile: File | null;
+  uploadedPhotoURL: string | null;
+}
+
 function toLocalDateTime(value: Date | undefined, part: 'date' | 'time'): string {
   if (!value || Number.isNaN(value.getTime())) return '';
   const pad = (number: number) => String(number).padStart(2, '0');
@@ -62,6 +74,8 @@ function asDate(value: unknown): Date | undefined {
 }
 
 export default function EventForm({ eventId }: { eventId?: string }) {
+  const [newEventRef] = useState(() => doc(collection(db, 'yardSaleEvents')));
+  const pendingExactSave = useRef<PendingExactSave | null>(null);
   const { user, loading: authLoading } = useAuthStore();
   useAuthContext();
   const [values, setValues] = useState<EventFormValues>(emptyForm());
@@ -209,6 +223,35 @@ export default function EventForm({ eventId }: { eventId?: string }) {
       return;
     }
 
+    const serverManaged = values.locationVisibility === 'exact' ||
+      loadedEvent?.locationVisibility === 'exact' ||
+      Number.isSafeInteger(loadedEvent?.eventVersion);
+    const eventDocumentId = eventId ?? newEventRef.id;
+    const expectedEventVersion = loadedEvent?.eventVersion ?? 0;
+    const expectedUpdatedAtMs = loadedEvent?.updatedAt?.getTime() ?? null;
+    const requestFingerprint = JSON.stringify({
+      userId: user.id,
+      eventId: eventDocumentId,
+      values,
+      startDateMs: dates.startDate.getTime(),
+      endDateMs: dates.endDate.getTime(),
+      expectedEventVersion,
+      expectedUpdatedAtMs,
+      photoURL,
+      photoFile: photoFile
+        ? [photoFile.name, photoFile.size, photoFile.type, photoFile.lastModified]
+        : null,
+    });
+    const pending = pendingExactSave.current;
+    if (
+      serverManaged &&
+      pending &&
+      (pending.fingerprint !== requestFingerprint || pending.photoFile !== photoFile)
+    ) {
+      toast.error('The previous save may have completed. Reload the event before changing or retrying it.');
+      return;
+    }
+
     setLoading(true);
     let uploadedPhoto: StorageReference | null = null;
     let saved = false;
@@ -216,16 +259,17 @@ export default function EventForm({ eventId }: { eventId?: string }) {
     try {
       const eventRef = eventId
         ? doc(db, 'yardSaleEvents', eventId)
-        : doc(collection(db, 'yardSaleEvents'));
+        : newEventRef;
       let nextPhotoURL = photoURL;
-      if (photoFile) {
+      if (pending?.uploadedPhotoURL) {
+        nextPhotoURL = pending.uploadedPhotoURL;
+      } else if (photoFile) {
         const uploadRef = ref(storage, `events/${user.id}/${eventRef.id}_${crypto.randomUUID()}_${photoFile.name}`);
         await uploadBytes(uploadRef, photoFile);
         uploadedPhoto = uploadRef;
         nextPhotoURL = await getDownloadURL(uploadRef);
       }
 
-      const privateRef = doc(db, 'eventPrivate', eventRef.id);
       const now = new Date();
       const publicData = buildPublicEventData({
         userId: user.id,
@@ -240,34 +284,71 @@ export default function EventForm({ eventId }: { eventId?: string }) {
         updatedAt: now,
         itemCount: loadedEvent?.itemCount ?? 0,
       });
-      const privateData = buildPrivateEventData(user.id, values.address);
-      const batch = writeBatch(db);
-
-      if (eventId) {
-        batch.update(eventRef, {
-          ...publicData,
-          address: deleteField(),
-          latitude: deleteField(),
-          longitude: deleteField(),
-        });
-      } else {
-        batch.set(eventRef, publicData);
-      }
-
-      if (privateData) {
-        batch.set(privateRef, privateData);
-      } else if (eventId && privateRecordExists) {
-        batch.delete(privateRef);
-      }
-
       commitStarted = true;
-      await batch.commit();
+
+      if (serverManaged) {
+        const saveEvent = httpsCallable(functions, 'saveEventWithConsent');
+        const operationId = pending?.operationId ?? crypto.randomUUID();
+        pendingExactSave.current = {
+          fingerprint: requestFingerprint,
+          operationId,
+          photoFile,
+          uploadedPhotoURL: photoFile ? nextPhotoURL : null,
+        };
+        await saveEvent({
+          eventId: eventRef.id,
+          operationId,
+          expectedEventVersion,
+          expectedUpdatedAtMs,
+          title: publicData.title,
+          description: publicData.description,
+          location: publicData.location,
+          locationVisibility: values.locationVisibility,
+          startDateMs: dates.startDate.getTime(),
+          endDateMs: dates.endDate.getTime(),
+          photoURL: nextPhotoURL,
+          itemCount: publicData.itemCount,
+          address: values.address.trim(),
+          consentVersion: values.locationVisibility === 'exact'
+            ? EXACT_ADDRESS_CONSENT_VERSION
+            : null,
+          consentConfirmed: values.locationVisibility === 'exact' && exactAddressConfirmed,
+        });
+        pendingExactSave.current = null;
+      } else {
+        const privateRef = doc(db, 'eventPrivate', eventRef.id);
+        const privateData = buildPrivateEventData(user.id, values.address);
+        const batch = writeBatch(db);
+
+        if (eventId) {
+          batch.update(eventRef, {
+            ...publicData,
+            address: deleteField(),
+            latitude: deleteField(),
+            longitude: deleteField(),
+          });
+        } else {
+          batch.set(eventRef, publicData);
+        }
+
+        if (privateData) {
+          batch.set(privateRef, privateData);
+        } else if (eventId && privateRecordExists) {
+          batch.delete(privateRef);
+        }
+
+        await batch.commit();
+      }
       saved = true;
       toast.success(eventId ? 'Event updated successfully!' : 'Yard sale event created!');
       router.push(eventId ? `/events/${eventId}` : '/dashboard');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to save sale.');
-      if (uploadedPhoto && !saved && commitStarted) {
+      if (
+        !saved &&
+        commitStarted &&
+        (uploadedPhoto || pendingExactSave.current?.uploadedPhotoURL)
+      ) {
         toast.error('The save could not be confirmed. The uploaded photo was retained; check the event before retrying.', { duration: 10000 });
       } else if (uploadedPhoto && !saved) {
         try {
@@ -383,7 +464,7 @@ export default function EventForm({ eventId }: { eventId?: string }) {
                     onChange={event => setExactAddressConfirmed(event.target.checked)}
                     className="mt-1"
                   />
-                  <span>I understand and confirm that this exact address will be published.</span>
+                  <span>{EXACT_ADDRESS_CONSENT_TEXT}</span>
                 </label>
               </div>
             )}

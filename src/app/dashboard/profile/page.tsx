@@ -11,6 +11,7 @@ import { useAuthContext } from '@/hooks';
 import { useAuthStore } from '@/store';
 import { LoadingSpinner } from '@/components';
 import { Avatar } from '@/components/Avatar';
+import { usernameRateLimitErrorMessage } from '@/lib/username-rate-limit';
 
 function renameErrorMessage(error: unknown): string {
   const code = typeof error === 'object' && error !== null && 'code' in error
@@ -32,8 +33,10 @@ function renameErrorMessage(error: unknown): string {
     case 'functions/unavailable':
     case 'functions/deadline-exceeded':
     case 'functions/aborted':
-    case 'functions/resource-exhausted':
       return 'The username service is temporarily unavailable. Please retry the same username.';
+    case 'functions/resource-exhausted':
+      return usernameRateLimitErrorMessage(error, 'rename') ??
+        'The username service is temporarily unavailable. Please retry the same username.';
     default:
       return 'Unable to change your username. Please try again or contact support.';
   }

@@ -23,6 +23,7 @@ export interface YardSaleEvent {
   createdAt: Date;
   updatedAt: Date;
   itemCount: number;
+  eventVersion?: number;
 }
 
 export interface Item {

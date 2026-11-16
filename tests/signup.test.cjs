@@ -27,6 +27,10 @@ test('maps duplicate and transient callable errors by Firebase code', () => {
   assert.match(registrationErrorMessage({ code: 'functions/unavailable' }), /temporarily unavailable.*try again/);
   assert.match(registrationErrorMessage({ code: 'functions/unauthenticated' }), /Sign in/);
   assert.match(registrationErrorMessage({ code: 'functions/failed-precondition' }), /contact support/);
+  assert.match(registrationErrorMessage({
+    code: 'functions/resource-exhausted',
+    details: { reason: 'USERNAME_RATE_LIMIT', retryAfterSeconds: 901 },
+  }), /about 16 minutes/);
 });
 
 test('registers only after account and private profile creation, then retries without a second account', async () => {
@@ -237,6 +241,7 @@ for (const status of ['ready', 'missing', 'error']) test(`profile page handles $
     },
     '@/lib/firebase': { db: {} },
     '@/lib/signup': require(`${process.env.CATEGORY_TEST_BUILD}/signup.js`),
+    '@/lib/username-rate-limit': require(`${process.env.CATEGORY_TEST_BUILD}/username-rate-limit.js`),
     '@/hooks': { useAuthContext() {} },
     '@/store': { useAuthStore: () => ({
       user: { id: 'uid-1', displayName: 'Private Name', email: 'private@example.test', location: 'Nederland' },
@@ -279,7 +284,7 @@ for (const status of ['ready', 'missing', 'error']) test(`profile page handles $
   if (status === 'error') assert.ok(find(node => node.type === 'button' && node.props.children === 'Try again'));
 });
 
-for (const scenario of ['success', 'unavailable-name', 'cooldown', 'inconsistent', 'missing-details', 'retry', 'invalid']) {
+for (const scenario of ['success', 'unavailable-name', 'cooldown', 'inconsistent', 'missing-details', 'retry', 'rate-limited', 'invalid']) {
   test(`profile username editing handles ${scenario}`, async () => {
     const states = [], effects = [], calls = [];
     let cursor = 0, tree, firstRender = true, attempts = 0, resolveRename;
@@ -319,6 +324,10 @@ for (const scenario of ['success', 'unavailable-name', 'cooldown', 'inconsistent
             if (scenario === 'cooldown') throw { code: 'functions/failed-precondition', message: 'Different message', details: { reason: 'USERNAME_RENAME_COOLDOWN' } };
             if (scenario === 'inconsistent' || scenario === 'missing-details') throw { code: 'functions/failed-precondition', message: 'You can change your username once every 30 days.', details: scenario === 'inconsistent' ? { reason: 'PROFILE_INCONSISTENT' } : undefined };
             if (scenario === 'retry' && attempts === 1) throw { code: 'functions/unavailable' };
+            if (scenario === 'rate-limited') throw {
+              code: 'functions/resource-exhausted',
+              details: { reason: 'USERNAME_RATE_LIMIT', retryAfterSeconds: 901 },
+            };
             if (scenario === 'success') return new Promise(resolve => { resolveRename = () => resolve({ data: { username: 'new_name' } }); });
             return { data: { username: payload.username } };
           };
@@ -326,6 +335,7 @@ for (const scenario of ['success', 'unavailable-name', 'cooldown', 'inconsistent
       },
       '@/lib/firebase': { db: {}, functions: 'regional-functions', auth },
       '@/lib/signup': require(`${process.env.CATEGORY_TEST_BUILD}/signup.js`),
+      '@/lib/username-rate-limit': require(`${process.env.CATEGORY_TEST_BUILD}/username-rate-limit.js`),
       '@/hooks': { useAuthContext() {} },
       '@/store': { useAuthStore: () => ({ user: { id: 'uid-1', displayName: 'Private Name', email: 'private@example.test' }, loading: false }) },
       '@/components': { LoadingSpinner: () => null },
@@ -385,6 +395,7 @@ for (const scenario of ['success', 'unavailable-name', 'cooldown', 'inconsistent
     if (scenario === 'inconsistent' || scenario === 'missing-details') assert.match(message, /contact support/);
     if (scenario === 'unavailable-name') assert.match(message, /unavailable/);
     if (scenario === 'retry') assert.match(message, /temporarily unavailable/);
+    if (scenario === 'rate-limited') assert.match(message, /about 16 minutes/);
     assert.equal(find(node => node.props?.id === 'new-username').props.value, 'New_Name');
     if (scenario === 'unavailable-name' || scenario === 'retry') {
       if (scenario === 'unavailable-name') {

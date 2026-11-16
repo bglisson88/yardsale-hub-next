@@ -2,9 +2,12 @@ import type { CallableOptions } from 'firebase-functions/v2/https';
 import type { MemoryOption } from 'firebase-functions/v2';
 
 const STAGING_PROJECT_ID = 'yardsale-hub-staging';
+const PRODUCTION_PROJECT_ID = 'yardsale-hub-93c49';
 const EMULATOR_PROJECT_ID = 'demo-yardsale-hub';
 const STAGING_SERVICE_ACCOUNT =
   'yardsale-hub-staging-backend@yardsale-hub-staging.iam.gserviceaccount.com';
+const PRODUCTION_SERVICE_ACCOUNT =
+  'yardsale-hub-prod-backend@yardsale-hub-93c49.iam.gserviceaccount.com';
 const REQUIRED_REGION = 'us-south1';
 const REQUIRED_LIMITS = {
   maxInstances: 2,
@@ -128,17 +131,27 @@ export function buildProfileCallableOptions(
     return options;
   }
 
-  if (mode !== 'staging' || projectId !== STAGING_PROJECT_ID) {
-    configurationError('only the configured staging project may use cloud runtime mode');
+  if (mode === 'staging' && projectId === STAGING_PROJECT_ID) {
+    const serviceAccount = requiredValue(env, 'YSH_FUNCTIONS_SERVICE_ACCOUNT');
+    assertServiceAccount(serviceAccount, projectId);
+    if (serviceAccount !== STAGING_SERVICE_ACCOUNT) {
+      configurationError('service account does not match the reviewed staging identity');
+    }
+    options.serviceAccount = serviceAccount;
+    return options;
   }
 
-  const serviceAccount = requiredValue(env, 'YSH_FUNCTIONS_SERVICE_ACCOUNT');
-  assertServiceAccount(serviceAccount, projectId);
-  if (serviceAccount !== STAGING_SERVICE_ACCOUNT) {
-    configurationError('service account does not match the reviewed staging identity');
+  if (mode === 'production' && projectId === PRODUCTION_PROJECT_ID) {
+    const serviceAccount = requiredValue(env, 'YSH_FUNCTIONS_SERVICE_ACCOUNT');
+    assertServiceAccount(serviceAccount, projectId);
+    if (serviceAccount !== PRODUCTION_SERVICE_ACCOUNT) {
+      configurationError('service account does not match the reviewed production identity');
+    }
+    options.serviceAccount = serviceAccount;
+    return options;
   }
-  options.serviceAccount = serviceAccount;
-  return options;
+
+  configurationError('cloud runtime mode does not match an explicitly configured project');
 }
 
 export const profileCallableOptions = buildProfileCallableOptions(process.env);

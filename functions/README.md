@@ -47,9 +47,13 @@ non-secret staging settings. It pins `yardsale-hub-staging` to `us-south1`,
 the dedicated staging runtime service account, and the reviewed per-callable
 limits (`maxInstances: 2`, `concurrency: 10`, `timeoutSeconds: 30`,
 `memory: 256MiB`, `minInstances: 0`). There is no shared staging `.env` and
-no production dotenv configuration. Production must receive its own reviewed
-project, region, and runtime identity before these callables can be deployed
-there; the code fails closed for any unconfigured project.
+the tracked `functions/.env.yardsale-hub-93c49` contains only non-secret,
+reviewed production runtime settings. Production discovery is accepted only
+for project `yardsale-hub-93c49` and service account
+`yardsale-hub-prod-backend@yardsale-hub-93c49.iam.gserviceaccount.com`; it
+uses the same region and limits as staging. This file does not create that
+service account or grant IAM roles. Those permissions must be verified
+separately before any production deployment.
 
 The tracked `functions/.env.demo-yardsale-hub` is emulator-only configuration.
 It selects `us-south1` and the same bounded limits, has no service-account
@@ -112,3 +116,59 @@ Firestore and Storage rules selections. The rules suite exercises both.
 Admin initialization in the Functions runtime uses managed credentials for a
 future deployment; no service-account key is needed. Deployment requires
 separate staging-only IAM and project review.
+
+### Production runtime settings
+
+The production runtime is fail-closed to `yardsale-hub-93c49`, the dedicated
+`yardsale-hub-prod-backend` identity, and `us-south1`. The enforced limits are
+2 maximum instances, concurrency 10, 30 seconds, 256 MiB, and 0 minimum
+instances. Staging and emulator configuration remain separate. This PR does
+not create the identity, change IAM, or deploy Functions. Mandatory App Check
+enforcement remains disabled pending separate approval.
+
+### Username attempt limits
+
+`registerPublicProfile` and `renameUsername` each use a server-only
+`usernameRateLimits/{uid}/operations/{operation}` document. Each operation is
+limited to 5 attempts in a rolling 15 minutes and 20 in a rolling 24 hours.
+Authenticated requests with syntactically valid usernames count even when
+the name is taken, reserved, or the rename cooldown blocks the change. Invalid
+request shapes are rejected before consuming quota. Rate-limit consumption
+uses its own Firestore transaction before the atomic profile/claim transaction;
+a valid failed business attempt still consumes one quota slot. The 30-day
+rename cooldown remains unchanged. Clients receive a retry duration in
+`resource-exhausted` details and display an actionable message.
+
+### Exact-address event consent
+
+`saveEventWithConsent` handles exact publication and exact-visibility
+transitions; `deleteEventWithConsent` handles deletion. Both require an
+authenticated organizer and use Admin SDK transactions with
+`eventVersion` optimistic checks and operation IDs for retries. Exact
+publication requires an affirmative assertion for `exact-address-v1`.
+Street addresses are written only to `eventPrivate`; exact writes also create
+an active `eventAddressConsent/{eventId}` marker bound to the private
+`addressRevision`, and an append-only
+`eventAddressConsent/{eventId}/history/{operationId}` record. Downgrades and
+deletions revoke the active marker and record history in the same transaction.
+General-event client writes remain supported without `eventVersion`, and
+callable-managed transitions initialize it from zero.
+
+The callable code alone does not enforce public read restrictions. Firestore
+Rules must make consent and rate-limit records server-only, validate the
+marker/revision before an anonymous exact-address read, and reject direct
+client exact writes. The local `firestore.rules` is staging-only and exercises
+those rules. The complete published production rules source is not present in
+the repository; do not copy staging or the historical production backup to
+production. Production rules integration remains blocked until that exact
+source is supplied.
+
+### Read-only production event audit
+
+`scripts/audit-production-events.cjs` reports aggregate counts for production
+event/private/consent consistency and whether public documents contain
+address-like fields or coordinates. It does not write data or print event
+addresses or user IDs. It refuses to run without the exact project ID and an
+explicit read-only confirmation flag. Do not run it until separately
+authorized; production event-data audit and any reviewed remediation remain
+deployment prerequisites.

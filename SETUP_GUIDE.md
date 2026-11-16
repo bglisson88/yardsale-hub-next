@@ -4,6 +4,14 @@
 
 This guide will help you set up and deploy YardSale Hub on Vercel.
 
+> **Security notice:** The historical Firestore rules example below has been
+> removed because it allowed public reads of private user documents and did
+> not protect event addresses. Use `FIREBASE_SETUP.md` for current local
+> guidance. `firestore.rules` is staging-only; do not publish it or
+> `firestore.production-backup.rules` to production. Production rules must be
+> derived from the complete verified published rules source, which is not
+> currently available in this repository.
+
 ### Prerequisites
 
 - Node.js 18 or higher
@@ -67,43 +75,15 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 
 ### Step 5: Set Up Firestore Rules
 
-Go to Firestore → Rules and replace the default rules with:
-
-```firestore
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    // Users collection
-    match /users/{userId} {
-      allow read: if true;
-      allow create, update, delete: if request.auth.uid == userId;
-    }
-
-    // Items collection
-    match /items/{itemId} {
-      allow read: if true;
-      allow create, update, delete: if request.auth.uid == resource.data.userId;
-    }
-
-    // Yard Sale Events collection
-    match /yardSaleEvents/{eventId} {
-      allow read: if true;
-      allow create, update, delete: if request.auth.uid == resource.data.userId;
-    }
-
-    // Messages collection
-    match /messages/{messageId} {
-      allow read: if request.auth.uid == resource.data.senderId || request.auth.uid == resource.data.recipientId;
-      allow create: if request.auth.uid == request.resource.data.senderId;
-    }
-
-    // Favorites collection
-    match /favorites/{favoriteId} {
-      allow read, create, delete: if request.auth.uid == resource.data.userId;
-    }
-  }
-}
-```
+Do not paste or publish a generic rules example. Use the configured staging
+rules only with local emulators. For production, first capture and review the
+complete currently published rules, then derive a narrowly scoped change
+that preserves owner-only `users/{uid}` access and unrelated permissions.
+Public event browsing must remain available, but event public documents must
+not contain street addresses or precise coordinates. Exact address reads
+require an active server consent marker bound to the private address revision.
+Production rules publication requires separate authorization and a completed
+read-only production event audit.
 
 ### Step 6: Set Up Storage Rules
 
@@ -130,6 +110,11 @@ npm run dev
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Deploy to Vercel
+
+These are generic instructions for a new project only. For the existing YardSale
+Hub production project, do not trigger a deployment or bypass the configured
+Ignored Build Step. The safeguard must remain unchanged; any preview promotion
+or production deployment requires separate authorization and verification.
 
 ### Option 1: Via GitHub (Recommended)
 

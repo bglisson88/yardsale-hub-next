@@ -73,7 +73,7 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'userId', 'title', 'description', 'location', 'locationVisibility',
           'startDate', 'endDate', 'photoURL', 'createdAt', 'updatedAt',
-          'itemCount'
+          'itemCount', 'eventVersion'
         ])
         && data.userId is string
         && data.title is string
@@ -91,7 +91,9 @@ service cloud.firestore {
         && data.createdAt is timestamp
         && data.updatedAt is timestamp
         && data.itemCount is int
-        && data.itemCount >= 0;
+        && data.itemCount >= 0
+        && (!data.keys().hasAny(['eventVersion'])
+            || (data.eventVersion is int && data.eventVersion >= 0));
     }
 
     function validPrivateEvent(eventId, data) {
@@ -105,7 +107,29 @@ service cloud.firestore {
         && data.address.size() > 0
         && data.address.size() <= 300
         && publicEvent.userId == request.auth.uid
+        && publicEvent.locationVisibility == 'general'
         && validEvent(publicEvent);
+    }
+
+    function validActiveAddressConsent(eventId, event, privateEvent) {
+      let markerPath = /databases/$(database)/documents/eventAddressConsent/$(eventId);
+      let marker = get(markerPath).data;
+      return exists(markerPath)
+        && marker.keys().hasAll([
+          'organizerUid', 'consentVersion', 'addressRevision', 'grantedAt',
+          'operationId'
+        ])
+        && marker.keys().hasOnly([
+          'organizerUid', 'consentVersion', 'addressRevision', 'grantedAt',
+          'operationId'
+        ])
+        && marker.organizerUid == event.userId
+        && marker.organizerUid == privateEvent.userId
+        && marker.consentVersion == 'exact-address-v1'
+        && marker.addressRevision is string
+        && marker.addressRevision == privateEvent.addressRevision
+        && marker.grantedAt is timestamp
+        && marker.operationId is string;
     }
 
     function validMessage(data) {
@@ -189,64 +213,36 @@ service cloud.firestore {
     match /yardSaleEvents/{eventId} {
       allow get: if validEvent(resource.data)
         || owns(resource.data.userId);
-      allow list: if signedIn()
-        && resource.data.userId == request.auth.uid;
+      // Public listing is safe only after legacy public documents are audited and sanitized.
+      allow list: if true;
 
       allow create: if signedIn()
         && validEvent(request.resource.data)
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.itemCount == 0
-        && (
-          request.resource.data.locationVisibility == 'general'
-          || (
-            request.resource.data.locationVisibility == 'exact'
-            && existsAfter(
-              /databases/$(database)/documents/eventPrivate/$(eventId)
-            )
-            && getAfter(
-              /databases/$(database)/documents/eventPrivate/$(eventId)
-            ).data.userId == request.auth.uid
-            && getAfter(
-              /databases/$(database)/documents/eventPrivate/$(eventId)
-            ).data.address is string
-            && getAfter(
-              /databases/$(database)/documents/eventPrivate/$(eventId)
-            ).data.address.size() > 0
-          )
-        );
+        && request.resource.data.locationVisibility == 'general'
+        && !request.resource.data.keys().hasAny(['eventVersion']);
 
       allow update: if signedIn()
         && resource.data.userId == request.auth.uid
+        && resource.data.locationVisibility == 'general'
+        && !resource.data.keys().hasAny(['eventVersion'])
         && validEvent(request.resource.data)
         && request.resource.data.userId == resource.data.userId
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.itemCount == resource.data.itemCount
+        && request.resource.data.locationVisibility == 'general'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'title', 'description', 'location', 'locationVisibility', 'address',
-          'latitude', 'longitude', 'startDate', 'endDate', 'photoURL',
-          'updatedAt'
-        ])
-        && (
-          request.resource.data.locationVisibility == 'general'
-          || (
-            request.resource.data.locationVisibility == 'exact'
-            && existsAfter(
-              /databases/$(database)/documents/eventPrivate/$(eventId)
-            )
-            && getAfter(
-              /databases/$(database)/documents/eventPrivate/$(eventId)
-            ).data.userId == request.auth.uid
-            && getAfter(
-              /databases/$(database)/documents/eventPrivate/$(eventId)
-            ).data.address is string
-            && getAfter(
-              /databases/$(database)/documents/eventPrivate/$(eventId)
-            ).data.address.size() > 0
-          )
-        );
+          'title', 'description', 'location', 'startDate', 'endDate',
+          'photoURL', 'updatedAt'
+        ]);
 
       allow delete: if signedIn()
-        && resource.data.userId == request.auth.uid;
+        && resource.data.userId == request.auth.uid
+        && resource.data.locationVisibility == 'general'
+        && !exists(
+          /databases/$(database)/documents/eventAddressConsent/$(eventId)
+        );
     }
 
     match /eventPrivate/{eventId} {
@@ -269,6 +265,14 @@ service cloud.firestore {
           && resource.data.userId == get(
             /databases/$(database)/documents/yardSaleEvents/$(eventId)
           ).data.userId
+          && resource.data.address is string
+          && resource.data.address.size() > 0
+          && resource.data.addressRevision is string
+          && validActiveAddressConsent(
+            eventId,
+            get(/databases/$(database)/documents/yardSaleEvents/$(eventId)).data,
+            resource.data
+          )
         )
         || (
           signedIn()
@@ -287,10 +291,14 @@ service cloud.firestore {
 
       allow update: if signedIn()
         && resource.data.userId == request.auth.uid
+        && !resource.data.keys().hasAny(['addressRevision'])
         && validPrivateEvent(eventId, request.resource.data);
 
       allow delete: if signedIn()
         && resource.data.userId == request.auth.uid
+        && !exists(
+          /databases/$(database)/documents/eventAddressConsent/$(eventId)
+        )
         && (
           !existsAfter(
             /databases/$(database)/documents/yardSaleEvents/$(eventId)
@@ -304,6 +312,18 @@ service cloud.firestore {
             ).data.locationVisibility == 'general'
           )
         );
+    }
+
+    match /eventAddressConsent/{eventId} {
+      allow read, write: if false;
+
+      match /history/{operationId} {
+        allow read, write: if false;
+      }
+    }
+
+    match /usernameRateLimits/{uid}/{document=**} {
+      allow read, write: if false;
     }
 
     match /favorites/{favoriteId} {
