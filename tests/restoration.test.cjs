@@ -67,6 +67,15 @@ function harness(file, initialAuth = { user: null, loading: false }) {
     'firebase/auth': { signOut: async () => { signOutCalls++; if (rejectSignOut) throw new Error('offline'); } },
     'firebase/firestore': {
       collection: (_, name) => { queriedCollections.push(name); return name; },
+      doc: (_, collectionName, id) => ({ collectionName, id }),
+      onSnapshot: (reference, onNext) => {
+        if (reference.collectionName === 'publicProfiles') {
+          onNext({
+            data: () => ({ username: 'test_neighbor' }),
+          });
+        }
+        return () => {};
+      },
       query: stub, where: (...args) => constraints.push(args), Timestamp: { now: stub },
       getDocs: async () => ({ docs: [] }),
     },

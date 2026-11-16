@@ -169,7 +169,7 @@ for (const scenario of ['existing-user', 'duplicate', 'ambiguous-private-write']
     return;
   }
   for (const [name, value] of Object.entries({
-    displayName: 'Seller', email: 'seller@example.test', location: 'Nederland',
+    email: 'seller@example.test', location: 'Nederland',
     password: 'password', confirmPassword: 'password', username: 'TAKEN',
   })) {
     find(node => node.props?.name === name).props.onChange({ target: { name, value } });
@@ -269,7 +269,7 @@ for (const status of ['ready', 'missing', 'error']) test(`profile page handles $
   await new Promise(resolve => setImmediate(resolve));
   render();
   assert.deepEqual(reads, ['publicProfiles/uid-1']);
-  assert.ok(find(node => node.type === 'dd' && node.props.children === 'Private Name'));
+  assert.equal(find(node => node.type === 'dd' && node.props.children === 'Private Name'), undefined);
   assert.ok(find(node => node.type === 'dd' && node.props.children === 'private@example.test'));
   if (status === 'ready') {
     assert.ok(find(node => node.type === 'dd' && React.Children.toArray(node.props.children.props.children).includes('seller_1')));

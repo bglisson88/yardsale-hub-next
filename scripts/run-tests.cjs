@@ -20,6 +20,7 @@ const tests = [
   'tests/selectors.test.cjs',
   'tests/usability.test.cjs',
   'tests/signup.test.cjs',
+  'tests/messages.test.cjs',
 ];
 
 function run(args, env = process.env) {

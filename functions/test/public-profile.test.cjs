@@ -296,7 +296,7 @@ test('new registration creates public profile, claim, and state atomically', asy
   ]);
   assert.deepEqual(registration.writes[0][2], {
     username: 'seller_1',
-    displayName: 'Seller',
+    displayName: 'seller_1',
     photoURL: null,
     memberSince: Timestamp.fromDate(new Date(registration.creationTime)),
   });
@@ -357,7 +357,7 @@ test('rename transaction moves the claim and updates only approved fields', asyn
   assert.deepEqual(writes.slice(0, 3), [
     ['delete', 'usernameClaims/old_name'],
     ['create', 'usernameClaims/new_name', { uid: 'user-123' }],
-    ['update', 'publicProfiles/user-123', { username: 'new_name' }],
+    ['update', 'publicProfiles/user-123', { username: 'new_name', displayName: 'new_name' }],
   ]);
   assert.equal(writes.length, 4);
   assert.equal(writes[3][0], 'update');

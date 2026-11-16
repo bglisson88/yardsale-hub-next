@@ -122,7 +122,7 @@ export default function ProfilePage() {
       <Link href="/dashboard" className="text-blue-600 hover:underline">← Back to dashboard</Link>
       <div className="mt-8 rounded-xl border border-gray-200 bg-white p-6">
         <h1 className="text-3xl font-bold text-gray-900 mb-6">My Profile</h1>
-        <Avatar src={user.photoURL} name={user.displayName} size={64} />
+        <Avatar src={user.photoURL} name={publicProfile.uid === user.id && publicProfile.status === "ready" ? publicProfile.username : ""} size={64} />
         <dl className="mt-6 space-y-4">
           <div>
             <dt className="font-semibold">Public username</dt>
@@ -145,7 +145,7 @@ export default function ProfilePage() {
                 ) : 'Loading...'}
             </dd>
           </div>
-          <div><dt className="font-semibold">Name</dt><dd>{user.displayName}</dd></div>
+
           <div><dt className="font-semibold">Email</dt><dd>{user.email}</dd></div>
           <div><dt className="font-semibold">Location</dt><dd>{user.location || 'Not provided'}</dd></div>
           {user.bio && <div><dt className="font-semibold">About</dt><dd>{user.bio}</dd></div>}

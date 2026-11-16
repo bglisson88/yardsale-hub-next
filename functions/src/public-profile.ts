@@ -261,7 +261,7 @@ export const registerPublicProfile = onCall(profileCallableOptions, async reques
 
     transaction.create(profileRef, {
       username,
-      displayName,
+      displayName: username,
       photoURL: null,
       memberSince,
     });
@@ -392,7 +392,7 @@ export const renameUsername = onCall(profileCallableOptions, async request => {
 
     transaction.delete(currentClaimRef);
     transaction.create(requestedClaimRef, { uid });
-    transaction.update(profileRef, { username });
+    transaction.update(profileRef, { username, displayName: username });
     transaction.update(stateRef, { lastRenamedAt: FieldValue.serverTimestamp() });
     return { username };
   })).catch(throwRenameBackendError);

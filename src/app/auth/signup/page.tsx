@@ -22,7 +22,6 @@ export default function SignUp() {
   const submitting = useRef(false);
   const accountUid = useRef<string | null>(null);
   const [formData, setFormData] = useState({
-    displayName: '',
     username: '',
     email: '',
     password: '',
@@ -77,10 +76,7 @@ export default function SignUp() {
     let completed = false;
 
     try {
-      normalizeUsername(formData.username);
-      if (stage !== 'username' && !formData.displayName.trim()) {
-        throw new Error('Please enter a display name.');
-      }
+      const normalizedUsername = normalizeUsername(formData.username);
       if (stage === 'signup' && formData.password !== formData.confirmPassword) {
         throw new Error('Passwords do not match');
       }
@@ -110,7 +106,7 @@ export default function SignUp() {
           const newUser: User = {
             id: uid,
             email: auth.currentUser.email || formData.email,
-            displayName: formData.displayName,
+            displayName: normalizedUsername,
             photoURL: null,
             location: formData.location,
             bio: '',
@@ -182,20 +178,6 @@ export default function SignUp() {
             {setupError && <p role="alert" className="text-sm text-red-700">{setupError}</p>}
             {stage !== 'username' && (
             <>
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Display Name
-              </label>
-              <input
-                type="text"
-                name="displayName"
-                required
-                value={formData.displayName}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Your Name"
-              />
-            </div>
 
             {stage === 'signup' && (
             <div>

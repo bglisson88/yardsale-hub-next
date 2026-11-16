@@ -196,7 +196,7 @@ test('registers a legacy user with verified public data and enforces client rule
   ]);
   assert.deepEqual(Object.keys(profile.data()).sort(), ['displayName', 'memberSince', 'photoURL', 'username']);
   assert.equal(profile.get('username'), username);
-  assert.equal(profile.get('displayName'), privateData.displayName);
+  assert.equal(profile.get('displayName'), username);
   assert.equal(profile.get('photoURL'), null);
   assert.ok(profile.get('memberSince') instanceof Timestamp);
   assert.ok(profile.get('memberSince').isEqual(memberSince));
@@ -332,7 +332,7 @@ test('retries after rename return the current username without changing account 
     assert.deepEqual((await user.register({ username })).data, { username: current });
     assertUnchanged(beforeSnapshots, await snapshots(allRefs));
   }
-  assert.equal((await refs.profile.get()).get('displayName'), 'Legacy Seller');
+  assert.equal((await refs.profile.get()).get('displayName'), current);
   assert.equal((await refs.profile.get()).get('photoURL'), null);
 });
 
@@ -472,7 +472,7 @@ test('first rename is immediate, preserves fields, and same-name retries are ide
   assert.deepEqual((await user.rename({ username: requested.toUpperCase() })).data, { username: requested });
   const [privateAfter, profileAfter, oldClaim, stateAfter, newClaim] = await snapshots(allRefs);
   assertUnchanged([registered[0]], [privateAfter]);
-  assert.deepEqual(profileAfter.data(), { ...registered[1].data(), username: requested });
+  assert.deepEqual(profileAfter.data(), { ...registered[1].data(), username: requested, displayName: requested });
   assert.equal(oldClaim.exists, false);
   assert.deepEqual(newClaim.data(), { uid: user.uid });
   assert.ok(stateAfter.get('lastRenamedAt') instanceof Timestamp);
