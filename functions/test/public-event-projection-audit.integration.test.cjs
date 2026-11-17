@@ -228,7 +228,8 @@ test('emulator audit paginates and classifies synthetic coverage records', async
   assert.equal(report.validExistingProjections, 98);
   assert.equal(report.missingProjections, 1);
   assert.equal(report.staleProjections, 2);
-  assert.equal(report.malformedProjections, 1);
+  // Malformed and orphaned classifications overlap for the malformed orphan fixture.
+  assert.equal(report.malformedProjections, 2);
   assert.equal(report.orphanedProjections, 1);
   assert.equal(report.invalidLocationReferences, 4);
   assert.equal(report.inactiveLocationReferences, 1);
