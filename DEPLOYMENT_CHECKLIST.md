@@ -137,6 +137,11 @@ projection availability before switching public traffic.
 - [ ] Separately provision and verify the dedicated staging projection-audit
       identity with read-only Firestore permissions only. Do not use the
       Functions runtime identity for the audit.
+- [ ] Before provisioning, complete the staging-only permission and identity
+      review in
+      [`functions/STAGING_PROJECTION_AUDIT_IAM_CHECKLIST.md`](functions/STAGING_PROJECTION_AUDIT_IAM_CHECKLIST.md).
+      Verify both required read permissions and explicit denial of write/delete
+      permissions, including inherited IAM bindings and production access.
 - [ ] Run the projection coverage audit and dry-run plan only after the staging
       project, environment, and impersonated identity are verified:
 

@@ -48,7 +48,12 @@ switch (mode) {
     env = { ...process.env, GCLOUD_PROJECT: project };
     break;
   case 'integration-child':
-    args = ['--test', '--test-concurrency=1', 'functions/test/public-profile.integration.test.cjs'];
+    args = [
+      '--test',
+      '--test-concurrency=1',
+      'functions/test/public-profile.integration.test.cjs',
+      'functions/test/public-event-projection-audit.integration.test.cjs',
+    ];
     env = { ...process.env, FUNCTIONS_EMULATOR_HOST: '127.0.0.1:5001' };
     break;
   default:

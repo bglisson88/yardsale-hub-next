@@ -256,6 +256,13 @@ when data is quiescent and repeat it before acting on counts. The audit store
 exposes only document/query reads, and no cleanup, backfill, or
 stale-reconciliation write command is implemented.
 
+Before provisioning the audit identity, follow
+[`STAGING_PROJECTION_AUDIT_IAM_CHECKLIST.md`](STAGING_PROJECTION_AUDIT_IAM_CHECKLIST.md).
+The checklist specifies the minimum Firestore entity read/list permissions,
+scoped short-lived impersonation, and required positive and negative IAM
+verification. It is a plan only; no service account or IAM binding is created
+by this repository.
+
 Treat structurally eligible records as requiring manual review. Catalog field
 shape does not prove that labels are broad locations, and source title,
 description, and location text can still contain sensitive information.
@@ -272,6 +279,14 @@ provisioning and content review, a future change may add distinct, explicitly
 authorized commands for cleaning unsafe projections, backfilling approved
 missing projections, and reconciling approved stale projections. Those future
 commands must not change source events, consent records, or Firestore Rules.
+
+The audit adapter also has a synthetic Firestore Emulator integration suite.
+It runs as part of `npm run test:functions:integration` in CI, sharing that
+step's Firestore Emulator startup. To run it alone, use
+`npm run test:functions:projection-audit-integration`; both paths use the
+local demo project only. The test refuses to run without the expected local
+Firestore Emulator endpoint and demo project and rejects configured service
+account credentials. It does not access staging or live Firebase.
 
 ### Read-only event-data audit
 
