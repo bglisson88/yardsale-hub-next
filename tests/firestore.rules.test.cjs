@@ -477,32 +477,90 @@ function publicEvent(userId, overrides = {}) {
   };
 }
 
+function publicEventProjection(overrides = {}) {
+  return {
+    schemaVersion: 1,
+    title: 'Neighborhood Sale',
+    description: 'Saturday sale',
+    location: 'Nederland',
+    locationId: 'nederland',
+    locationVisibility: 'general',
+    startDate,
+    endDate,
+    photoURL: null,
+    createdAt,
+    updatedAt: createdAt,
+    itemCount: 0,
+    ...overrides,
+  };
+}
+
 async function seed(path, data) {
   await environment.withSecurityRulesDisabled(async context => {
     await setDoc(doc(context.firestore(), path), data);
   });
 }
 
-test('general event creation keeps public reads and browsing available', async () => {
+test('general event creation preserves public document reads and owner-only source listing', async () => {
   const alice = database('alice');
   const eventRef = doc(collection(alice, 'yardSaleEvents'));
-  await assertSucceeds(setDoc(eventRef, publicEvent('alice')));
+  await assertSucceeds(setDoc(eventRef, publicEvent('alice', { locationId: 'nederland' })));
   const result = await getDoc(doc(anonymousDatabase(), 'yardSaleEvents', eventRef.id));
   assert.equal(result.data().locationVisibility, 'general');
   assert.equal('address' in result.data(), false);
   assert.equal('latitude' in result.data(), false);
   assert.equal('longitude' in result.data(), false);
 
-  const publicEvents = await assertSucceeds(getDocs(query(
-    collection(anonymousDatabase(), 'yardSaleEvents'),
-    where('startDate', '>=', Timestamp.fromMillis(0)),
-  )));
-  assert.equal(publicEvents.size, 1);
+  await assertFails(getDocs(collection(anonymousDatabase(), 'yardSaleEvents')));
   const ownerEvents = await assertSucceeds(getDocs(query(
     collection(alice, 'yardSaleEvents'),
     where('userId', '==', 'alice'),
   )));
   assert.deepEqual(ownerEvents.docs.map(event => event.id), [eventRef.id]);
+});
+
+test('anonymous projection list trusts server-written documents while get validates schema and client writes fail', async () => {
+  await seed('yardSaleEvents/legacy-private', {
+    ...publicEvent('alice'),
+    address: '12 Main Street',
+    latitude: 29.99,
+    longitude: -94.01,
+    privateNote: 'Do not expose',
+  });
+  await seed('publicYardSaleEvents/safe-event', publicEventProjection());
+  await seed('publicYardSaleEvents/malformed-projection', {
+    ...publicEventProjection(),
+    address: '12 Main Street',
+  });
+  await seed('publicYardSaleEvents/unsupported-version', {
+    ...publicEventProjection(),
+    schemaVersion: 2,
+  });
+
+  const anonymous = anonymousDatabase();
+  const publicEvents = await assertSucceeds(getDocs(collection(anonymous, 'publicYardSaleEvents')));
+  assert.deepEqual(publicEvents.docs.map(event => event.id).sort(), [
+    'malformed-projection', 'safe-event', 'unsupported-version',
+  ]);
+  assert.deepEqual(Object.keys(publicEvents.docs.find(event => event.id === 'safe-event').data()).sort(), [
+    'createdAt', 'description', 'endDate', 'itemCount', 'location', 'locationId',
+    'locationVisibility', 'photoURL', 'schemaVersion', 'startDate', 'title', 'updatedAt',
+  ].sort());
+  assert.equal(publicEvents.docs.find(event => event.id === 'malformed-projection').data().address, '12 Main Street');
+  await assertFails(getDoc(doc(anonymous, 'publicYardSaleEvents', 'malformed-projection')));
+  await assertFails(getDoc(doc(anonymous, 'publicYardSaleEvents', 'unsupported-version')));
+
+  for (const db of [anonymous, database('alice')]) {
+    await assertFails(setDoc(
+      doc(db, 'publicYardSaleEvents', 'forged'),
+      publicEventProjection(),
+    ));
+    await assertFails(updateDoc(
+      doc(db, 'publicYardSaleEvents', 'safe-event'),
+      { title: 'Changed by client' },
+    ));
+    await assertFails(deleteDoc(doc(db, 'publicYardSaleEvents', 'safe-event')));
+  }
 });
 
 test('deployed legacy general-event create keeps an optional address private', async () => {
@@ -608,11 +666,13 @@ test('public event schema preserves city, ZIP-code, and broad-area locations', a
       publicEvent('alice', { location }),
     ));
   }
-  const publicEvents = await assertSucceeds(
-    getDocs(collection(anonymousDatabase(), 'yardSaleEvents')),
-  );
+  await assertFails(getDocs(collection(anonymousDatabase(), 'yardSaleEvents')));
+  const ownerEvents = await assertSucceeds(getDocs(query(
+    collection(alice, 'yardSaleEvents'),
+    where('userId', '==', 'alice'),
+  )));
   assert.deepEqual(
-    publicEvents.docs.map(event => event.data().location).sort(),
+    ownerEvents.docs.map(event => event.data().location).sort(),
     ['77705', 'Nederland', 'Texas', 'West Beaumont'].sort(),
   );
 });
@@ -1003,11 +1063,10 @@ test('public event listings contain only fields from the strict event schema', a
   await seed('yardSaleEvents/bob-event', publicEvent('bob'));
 
   const alice = database('alice');
-  const crossOwnerEvents = await assertSucceeds(getDocs(query(
+  await assertFails(getDocs(query(
     collection(alice, 'yardSaleEvents'),
     where('userId', '==', 'bob'),
   )));
-  assert.deepEqual(crossOwnerEvents.docs.map(event => event.id), ['bob-event']);
 
   const aliceEvents = await assertSucceeds(getDocs(query(
     collection(alice, 'yardSaleEvents'),
@@ -1026,12 +1085,17 @@ test('public event listings contain only fields from the strict event schema', a
     where('userId', '==', 'bob'),
   )));
   assert.deepEqual(bobEvents.docs.map(event => event.id), ['bob-event']);
-  const publicEvents = await assertSucceeds(getDocs(collection(anonymousDatabase(), 'yardSaleEvents')));
+  await seed('publicYardSaleEvents/alice-event', publicEventProjection());
+  await seed('publicYardSaleEvents/bob-event', publicEventProjection({
+    title: 'Another sale', locationVisibility: 'exact',
+  }));
+  const publicEvents = await assertSucceeds(getDocs(collection(anonymousDatabase(), 'publicYardSaleEvents')));
   assert.equal(publicEvents.size, 2);
   for (const event of publicEvents.docs) {
     assert.equal('address' in event.data(), false);
     assert.equal('latitude' in event.data(), false);
     assert.equal('longitude' in event.data(), false);
+    assert.equal('userId' in event.data(), false);
   }
 });
 
@@ -1052,6 +1116,8 @@ test('malformed legacy event documents are not publicly readable by document ID'
   assert.equal(ownerDocument.data().latitude, 29.99);
   assert.equal(ownerDocument.data().longitude, -94.01);
   assert.equal(ownerDocument.data().privateNote, 'Unexpected legacy field');
-
-  assert.equal(ownerDocument.data().address, '12 Main Street');
+  await assertFails(getDocs(collection(anonymousDatabase(), 'yardSaleEvents')));
+  assert.equal((await assertSucceeds(
+    getDocs(collection(anonymousDatabase(), 'publicYardSaleEvents')),
+  )).size, 0);
 });

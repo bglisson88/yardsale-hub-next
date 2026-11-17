@@ -221,7 +221,7 @@ export default function EventForm({ eventId }: { eventId?: string }) {
 
     void loadEvent();
     return () => { cancelled = true; };
-  }, [eventId, authLoading, user?.id]);
+  }, [eventId, authLoading, user]);
 
   const handleInputChange = (
     event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>,
@@ -454,13 +454,15 @@ export default function EventForm({ eventId }: { eventId?: string }) {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label htmlFor="event-title" className="block text-sm font-semibold text-gray-700 mb-2">Event Title *</label>
+            <label htmlFor="event-title" className="block text-sm font-semibold text-gray-700 mb-2">Public Event Title *</label>
             <input id="event-title" name="title" type="text" required maxLength={120} value={values.title} onChange={handleInputChange} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g., Spring Garage Sale" />
+            <p className="mt-2 text-sm text-gray-600">This title is public. Do not include your street address, access codes, or private contact information.</p>
           </div>
 
           <div>
             <label htmlFor="event-description" className="block text-sm font-semibold text-gray-700 mb-2">Description</label>
             <textarea id="event-description" name="description" value={values.description} onChange={handleInputChange} rows={4} maxLength={5000} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Describe your yard sale..." />
+            <p className="mt-2 text-sm text-gray-600">Descriptions are public. Keep street addresses, gate codes, and private contact information out of this field.</p>
           </div>
 
           <fieldset className="space-y-3">

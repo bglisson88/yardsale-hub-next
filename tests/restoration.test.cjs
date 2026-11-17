@@ -81,7 +81,11 @@ function harness(file, initialAuth = { user: null, loading: false }) {
     },
     'react-hot-toast': { __esModule: true, default: { error: message => errors.push(message) } },
     '@/lib/firebase': { auth: {}, db: {} },
-    '@/hooks': { useAuthContext: stub, useItems: () => ({ items: [] }) },
+    '@/hooks': {
+      useAuthContext: stub,
+      useItems: () => ({ items: [] }),
+      usePublicEvents: () => ({ events: [], loading: false, error: '' }),
+    },
     '@/store': { useAuthStore: () => authState },
     './Avatar': { Avatar: stub }, './Logo': { Logo: stub },
     '@/components/Logo': { Logo: stub },
@@ -261,7 +265,7 @@ test('desktop/mobile sign out closes menus and redirects only on success', async
   nav.unmount();
 });
 
-test('homepage keeps item search available without querying public events', () => {
+test('homepage enables events search while keeping item search available', () => {
   const page = harness('src/app/page.tsx');
   for (const [label, value] of [['Search items or events', ' lamp & desk '], ['Location (city or ZIP)', ' 12345 ']]) {
     page.find(node => node.props?.['aria-label'] === label).props.onChange({ target: { value } });
@@ -269,37 +273,33 @@ test('homepage keeps item search available without querying public events', () =
   }
   page.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} });
   assert.equal(page.pushes[0], '/items?search=lamp+%26+desk&location=12345');
-  assert.equal(page.queriedCollections.includes('yardSaleEvents'), false);
   assert.ok(page.find(node => node.props?.href?.startsWith('/events')));
   const eventOption = page.find(node => node.type === 'option' && node.props?.value === 'events');
-  assert.equal(eventOption.props.disabled, true);
-  const notice = page.find(node => node.props?.role === 'status');
-  assert.match(notice.props.children, /Public event browsing is temporarily unavailable while we improve privacy protections\./);
+  assert.equal(eventOption.props.disabled, undefined);
+  assert.equal(page.find(node => node.props?.children === 'Public event browsing is temporarily unavailable while we improve privacy protections.'), undefined);
 });
 
-test('events route shows temporary availability without querying events and keeps creation navigation', () => {
-  let collectionCalls = 0, queryCalls = 0;
+test('events route browses the projection and keeps event creation navigation', () => {
   const { default: Events } = load('src/app/events/page.tsx', {
-    react: {
-      ...React,
-      useState: initial => [initial, () => {}],
-      useEffect: effect => { effect(); },
+    react: React,
+    'next/navigation': {
+      useSearchParams: () => new URLSearchParams('search=sale'),
     },
-    'firebase/firestore': {
-      collection: () => { collectionCalls++; return {}; },
-      query: () => { queryCalls++; return {}; },
-      where: () => ({}),
-      Timestamp: { now: () => new Date() },
-      getDocs: async () => ({ docs: [], forEach() {} }),
-    },
-    '@/lib/firebase': { db: {} },
     'next/link': { __esModule: true, default: 'a' },
+    '@/hooks': {
+      usePublicEvents: () => ({ events: [], loading: false, error: '' }),
+    },
+    '@/components/EmptyState': {
+      EmptyState: ({ title, description }) => React.createElement('p', null, `${title}: ${description}`),
+    },
+    '@/components/EventCard': { EventCard: () => null },
+    '@/components/LoadingSpinner': { LoadingSpinner: () => null },
   });
   const html = renderToStaticMarkup(Events());
-  assert.match(html, /Public event browsing is temporarily unavailable while we improve privacy protections\./);
+  assert.match(html, /Yard Sale Events/);
+  assert.match(html, /No matching events/);
   assert.match(html, /href="\/events\/new"/);
-  assert.equal(collectionCalls, 0);
-  assert.equal(queryCalls, 0);
+  assert.match(html, /street addresses, access codes, or private contact information/);
 });
 
 test('homepage quick links use the updated taxonomy and one layout strip mount', () => {

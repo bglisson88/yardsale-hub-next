@@ -181,6 +181,46 @@ the repository; do not copy staging or the historical production backup to
 production. Production rules integration remains blocked until that exact
 source is supplied.
 
+### Public event projection
+
+Anonymous browse clients read `publicYardSaleEvents`, not the
+owner-managed `yardSaleEvents` collection. The projection contains only schema
+version `1`, title, description, canonical general location and ID, visibility, event dates,
+photo URL, and item count. It never contains an organizer ID, address,
+coordinates, event version, or unrecognized source fields; Rules deny all
+client writes. Source listing is owner-scoped, while valid individual event
+gets and owner editing remain available. Rules strictly validate individual
+projection gets, but the broad anonymous list grant cannot validate or redact
+each returned document without breaking the browse query. Every list result is
+returned in full. List safety relies on the trusted Functions writer using the
+allowlisted builder. Admin SDK, Console, migration, or other privileged writes
+bypass Rules and could expose arbitrary fields through public listing; no
+other writer may target this collection without enforcing the same contract.
+
+`projectPublicYardSaleEvent` reconciles from the current source document inside
+a Firestore transaction instead of trusting a trigger's historical payload.
+Consequently retries and out-of-order invocations converge on the latest
+source state; a deleted source cannot be recreated from an old trigger.
+`refreshPublicEventsForLocation` removes or refreshes projections when a
+trusted canonical location changes. Events with missing/legacy location IDs,
+invalid schemas, unexpected fields, or inactive/noncanonical catalog entries
+are omitted until separately reviewed and corrected. Existing source events
+are not automatically backfilled.
+
+The web form labels titles and descriptions as public and warns users not to
+place street addresses, access codes, or private contact data in free text.
+Text inspection is not complete: those fields remain organizer-authored public
+content, and the warning cannot guarantee that private information is absent.
+Exact street addresses remain in `eventPrivate`; only the existing explicit
+consent and active marker permit anonymous reads. Revocation does not recall
+previously downloaded or cached addresses.
+
+Deploy projection Functions before enabling the public projection Rules and
+frontend. Review any existing source data before a one-time backfill; backfill
+is a separate approval and is never performed by these triggers or deployment
+steps. Production Rules must be derived from the verified active production
+Rules source, not copied from this staging-only file.
+
 ### Read-only event-data audit
 
 `scripts/audit-production-events.cjs` accepts only `yardsale-hub-93c49` with

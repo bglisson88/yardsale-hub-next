@@ -7,6 +7,7 @@ import {
 } from 'firebase-admin/firestore';
 import * as logger from 'firebase-functions/logger';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
+import { validCatalogLocation } from './location-catalog';
 import { profileCallableOptions } from './runtime-options';
 
 export const EXACT_ADDRESS_CONSENT_VERSION = 'exact-address-v1';
@@ -150,23 +151,6 @@ function parseSaveRequest(value: unknown): SaveRequest {
     consentVersion: value.consentVersion as string | null,
     consentConfirmed: value.consentConfirmed,
   };
-}
-
-function validCatalogLocation(data: DocumentData | undefined, display: string): boolean {
-  if (!data || !hasExactKeys(data, [
-    'kind', 'displayName', 'active', 'approvedAliases', 'countryCode', 'regionCode',
-  ])) return false;
-  return ['city', 'state', 'postalCode', 'area'].includes(data.kind) &&
-    typeof data.displayName === 'string' &&
-    data.displayName.length > 0 &&
-    data.displayName.length <= 200 &&
-    data.displayName === display &&
-    data.active === true &&
-    Array.isArray(data.approvedAliases) &&
-    typeof data.countryCode === 'string' &&
-    /^[A-Z]{2}$/.test(data.countryCode) &&
-    typeof data.regionCode === 'string' &&
-    data.regionCode.length <= 32;
 }
 
 function parseDeleteRequest(value: unknown): {

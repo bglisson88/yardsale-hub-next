@@ -59,6 +59,24 @@ function eventDocument() {
     title: 'Community sale',
     description: 'Sale details',
     location: 'Nederland',
+    locationId: 'nederland',
+    locationVisibility: 'general',
+    startDate: START_DATE,
+    endDate: END_DATE,
+    photoURL: null,
+    createdAt: CREATED_AT,
+    updatedAt: UPDATED_AT,
+    itemCount: 0,
+  };
+}
+
+function publicEventDocument() {
+  return {
+    schemaVersion: 1,
+    title: 'Community sale',
+    description: 'Sale details',
+    location: 'Nederland',
+    locationId: 'nederland',
     locationVisibility: 'general',
     startDate: START_DATE,
     endDate: END_DATE,
@@ -105,6 +123,7 @@ for (const { file, eventWritesAllowed } of SUPPORTED_CONFIGS) {
           }),
           setDoc(doc(db, 'items/chair'), itemDocument()),
           setDoc(doc(db, 'yardSaleEvents/sale'), eventDocument()),
+          setDoc(doc(db, 'publicYardSaleEvents/sale'), publicEventDocument()),
           setDoc(doc(db, 'generalLocations/nederland'), {
             kind: 'city', displayName: 'Nederland', active: true,
             approvedAliases: [], countryCode: 'US', regionCode: 'TX',
@@ -199,7 +218,9 @@ for (const { file, eventWritesAllowed } of SUPPORTED_CONFIGS) {
       assert.equal((await assertSucceeds(getDoc(
         doc(anonymous, 'yardSaleEvents', 'sale'),
       ))).data().title, 'Community sale');
-      const publicEvents = getDocs(collection(anonymous, 'yardSaleEvents'));
+      const sourceEvents = getDocs(collection(anonymous, 'yardSaleEvents'));
+      await assertFails(sourceEvents);
+      const publicEvents = getDocs(collection(anonymous, 'publicYardSaleEvents'));
       if (eventWritesAllowed) {
         assert.equal((await assertSucceeds(publicEvents)).size, 1);
       } else {

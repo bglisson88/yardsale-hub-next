@@ -17,6 +17,8 @@ const tests = [
   'tests/category-taxonomy.test.cjs',
   'tests/discovery.test.cjs',
   'tests/event-data.test.cjs',
+  'tests/event-detail.test.cjs',
+  'tests/public-events.test.cjs',
   'tests/restoration.test.cjs',
   'tests/selectors.test.cjs',
   'tests/usability.test.cjs',

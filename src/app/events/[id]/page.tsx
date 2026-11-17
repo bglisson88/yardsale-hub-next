@@ -22,6 +22,13 @@ function asDate(value: unknown): Date | undefined {
   return undefined;
 }
 
+function isPermissionDenied(error: unknown): boolean {
+  return typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'permission-denied';
+}
+
 export default function EventDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -57,10 +64,14 @@ export default function EventDetailPage() {
         let publishedAddress = '';
 
         if (data.locationVisibility === 'exact') {
-          const privateSnapshot = await getDoc(doc(db, 'eventPrivate', params.id));
-          const privateData = privateSnapshot.exists() ? privateSnapshot.data() : null;
-          if (privateData && privateData.userId === data.userId && typeof privateData.address === 'string') {
-            publishedAddress = privateData.address.trim();
+          try {
+            const privateSnapshot = await getDoc(doc(db, 'eventPrivate', params.id));
+            const privateData = privateSnapshot.exists() ? privateSnapshot.data() : null;
+            if (privateData && privateData.userId === data.userId && typeof privateData.address === 'string') {
+              publishedAddress = privateData.address.trim();
+            }
+          } catch (addressError) {
+            if (!isPermissionDenied(addressError)) throw addressError;
           }
         }
 
@@ -149,7 +160,11 @@ export default function EventDetailPage() {
                     </dd>
                   </>
                 ) : (
-                  <dd className="mt-1 text-sm text-gray-600">The organizer has chosen to share only a general location.</dd>
+                  <dd className="mt-1 text-sm text-gray-600">
+                    {event.locationVisibility === 'exact'
+                      ? 'The exact address is unavailable. Showing the general location.'
+                      : 'The organizer has chosen to share only a general location.'}
+                  </dd>
                 )}
               </div>
             </div>

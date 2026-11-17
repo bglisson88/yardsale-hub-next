@@ -4,3 +4,7 @@ initializeApp();
 
 export { registerPublicProfile, renameUsername } from './public-profile';
 export { saveEventWithConsent, deleteEventWithConsent } from './event-consent';
+export {
+  projectPublicYardSaleEvent,
+  refreshPublicEventsForLocation,
+} from './public-event-projection';

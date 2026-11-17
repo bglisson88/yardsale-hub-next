@@ -166,6 +166,39 @@ service cloud.firestore {
             || (data.eventVersion is int && data.eventVersion >= 0));
     }
 
+    function validPublicYardSaleEvent(data) {
+      return data.keys().hasAll([
+          'schemaVersion', 'title', 'description', 'location', 'locationId',
+          'locationVisibility', 'startDate', 'endDate', 'photoURL',
+          'createdAt', 'updatedAt', 'itemCount'
+        ])
+        && data.keys().hasOnly([
+          'schemaVersion', 'title', 'description', 'location', 'locationId',
+          'locationVisibility', 'startDate', 'endDate', 'photoURL',
+          'createdAt', 'updatedAt', 'itemCount'
+        ])
+        && data.schemaVersion == 1
+        && data.title is string
+        && data.title.size() > 0
+        && data.title.size() <= 120
+        && data.description is string
+        && data.description.size() <= 5000
+        && data.location is string
+        && data.location.size() > 0
+        && data.location.size() <= 200
+        && data.locationId is string
+        && data.locationId.matches('^[a-z0-9][a-z0-9_-]{0,63}$')
+        && data.locationVisibility in ['general', 'exact']
+        && data.startDate is timestamp
+        && data.endDate is timestamp
+        && data.endDate > data.startDate
+        && (data.photoURL == null || data.photoURL is string)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && data.itemCount is int
+        && data.itemCount >= 0;
+    }
+
     function validPrivateEvent(eventId, data) {
       let publicEvent = getAfter(
         /databases/$(database)/documents/yardSaleEvents/$(eventId)
@@ -284,8 +317,7 @@ service cloud.firestore {
     match /yardSaleEvents/{eventId} {
       allow get: if validEvent(resource.data)
         || owns(resource.data.userId);
-      // Public listing is safe only after legacy public documents are audited and sanitized.
-      allow list: if true;
+      allow list: if owns(resource.data.userId);
 
       allow create: if signedIn()
         && validEvent(request.resource.data)
@@ -316,6 +348,14 @@ service cloud.firestore {
         && !exists(
           /databases/$(database)/documents/eventAddressConsent/$(eventId)
         );
+    }
+
+    match /publicYardSaleEvents/{eventId} {
+      allow get: if validPublicYardSaleEvent(resource.data);
+      // Broad browse queries cannot enforce a document schema or redact returned fields.
+      // Anonymous list safety depends on trusted server writers using the projection allowlist.
+      allow list: if true;
+      allow create, update, delete: if false;
     }
 
     match /generalLocations/{locationId} {

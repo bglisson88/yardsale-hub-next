@@ -10,12 +10,16 @@ production action requires separate authorization.
       Do not derive production rules from `firestore.rules` or
       `firestore.production-backup.rules`.
 - [ ] Derive production rules from that exact text, preserving owner-only
-      `users/{uid}` access, public event browsing, and unrelated permissions.
+      `users/{uid}` access, sanitized public event browsing, and unrelated
+      permissions.
 - [ ] Review all overlapping `match` grants; Firestore grants are additive.
 - [ ] Run `npm run type-check`, `npm run build`, `npm run test`,
       `npm run build:functions`, `npm run test:functions`, and `npm run test:rules`.
 - [ ] Verify the consent, rate-limit, legacy-general-event, and negative rules
       tests in the emulators.
+- [ ] Verify the public event projection Functions and Rules tests, including
+      malformed-source omission, stale-trigger reconciliation, and owner-only
+      source listing.
 - [ ] Verify the production runtime configuration is limited to
       `yardsale-hub-93c49`, `us-south1`, the reviewed
       `yardsale-hub-prod-backend` identity, and the approved limits.
@@ -63,6 +67,54 @@ agreed adoption/rollback window; deleting the index denies all no-ID legacy
 writes. Review and separately authorize catalog changes, including removals.
 An inactive location rejects new or updated writes, but does not hide existing
 publicly listed events.
+
+## Public event projection
+
+Anonymous browsing reads `publicYardSaleEvents`; anonymous listing of the
+owner-managed `yardSaleEvents` source is denied. Owners retain source document
+gets, filtered owner listings, and existing editing/deletion flows. Clients
+cannot create, update, or delete projection documents.
+
+The server projection allowlist contains only `schemaVersion: 1`, `title`,
+`description`, `location`, `locationId`, `locationVisibility`, `startDate`, `endDate`,
+`photoURL`, `createdAt`, `updatedAt`, and `itemCount`. It omits `userId`,
+addresses, coordinates, event versions, and all unknown fields. Projection
+requires an exact known source schema and an active catalog record whose
+canonical display name matches the source location. Legacy events without a
+canonical `locationId`, alias-only events, malformed records, and inactive
+locations are not projected. Treat these omissions as requiring review, not
+proof that the source data is safe.
+
+Firestore Rules validate individual projection `get` requests, but the broad
+anonymous `list` grant cannot validate or redact each returned document without
+breaking the browse query. Every listed field is sent to the client. Anonymous
+list safety therefore depends on the trusted Functions writer constructing
+documents exclusively through the validated projection builder. Admin SDK,
+Console, migration, or other privileged writes bypass these Rules and can
+expose arbitrary fields in this collection; such writers must not write here
+unless they enforce the same allowlist. Reassess this trust boundary before
+adding any privileged writer.
+
+Source and catalog triggers reconcile projections transactionally from the
+current source/catalog state, not the trigger payload. Retried or out-of-order
+source triggers therefore converge to current state; source deletion removes
+the projection rather than allowing a stale trigger to recreate it. Catalog
+changes refresh events using that location ID. This is asynchronous: event
+listing can briefly lag source edits or deletions. The projection never
+contains exact addresses, so that delay must not be used to expose private
+location data.
+
+Event title and description are public free-text fields. The form warns
+organizers not to enter street addresses, access codes, or private contact
+information, but cannot detect or guarantee the absence of such content.
+Explicit exact-address consent continues to govern only the separate private
+address read path. Revocation cannot recall data already downloaded or cached.
+
+Functions do not automatically backfill existing source documents. Any
+backfill requires a separately approved, privacy-reviewed plan after an
+authorized data audit; do not assume hidden Console collections are empty.
+Canonical-ineligible legacy events remain owner-manageable but will not appear
+in public browse until reviewed and corrected.
 
 ## Required staging verification
 
@@ -128,8 +180,11 @@ publicly listed events.
       Test malformed, unapproved, inactive, and mismatched locations on create
       and update; confirm removing the alias index rejects legacy writes but
       not canonical writes.
-- [ ] Verify public event browsing and general-event create/edit, including
-      optional owner-only private addresses from the deployed `9ca33e0` payload.
+- [ ] Verify public event browsing reads only the projection, malformed or
+      legacy source events do not appear in browse, and owners can still list,
+      read, edit, and delete their own source events.
+- [ ] Verify general-event create/edit, including optional owner-only private
+      addresses from the deployed `9ca33e0` payload.
 - [ ] Verify client writes cannot create exact events, alter exact events,
       modify server-managed `eventVersion`, or access consent/rate-limit records.
 - [ ] Verify exact publication, address revision matching, stale writes,
@@ -171,13 +226,17 @@ Do not treat staging verification as production authorization.
    audit cannot prove that arbitrary strings are broad locations or safe.
 2. Separately authorize, provision, and review the catalog and finite alias
    index, then deploy the compatible Functions. Verify approved legacy options.
-3. Publish rules derived from the verified live production rules. Public event
-   browsing and general-event creation/editing must remain available. Direct
-   exact writes from the old website must be denied. Legacy general writes
-   with unapproved locations will be denied, including profile locations.
-4. Build and verify a preview configured for the production Firebase project.
+3. Publish rules derived from the verified live production rules. Deny public
+   source listing, permit anonymous list access only to the trusted-writer
+   projection collection (with schema validation on individual gets), preserve
+   owner-scoped source listing, and deny client projection writes. Direct exact
+   writes from the old website must be denied. Legacy general writes with
+   unapproved locations will be denied, including profile locations.
+4. Separately authorize and review any required projection backfill. Do not
+   infer production emptiness from collection visibility.
+5. Build and verify a preview configured for the production Firebase project.
    Keep the existing Vercel Ignored Build Step unchanged; do not bypass it.
-5. Promote the verified preview only after confirming the dashboard action
+6. Promote the verified preview only after confirming the dashboard action
    does not alter that safeguard, then verify browsing, general events,
    onboarding, and consent-gated exact events.
 
@@ -189,9 +248,11 @@ creation/editing must remain usable during that window.
 
 - If website promotion fails, leave the prior production website in place;
   exact writes remain disabled until a compatible website is promoted.
-- If Functions fail, do not restore the old direct exact-write rules. Keep
-  exact publication disabled, preserve public browsing/general events, and
-  investigate callable/runtime failures.
+- If projection Functions fail, keep anonymous source listing denied and do
+  not fall back to listing owner-managed source documents. Investigate trigger
+  failures; projection browsing may be stale or unavailable until repaired.
+- If consent Functions fail, do not restore the old direct exact-write rules.
+  Keep exact publication disabled and investigate callable/runtime failures.
 - If rules fail, restore only a reviewed prior ruleset that still denies
   unconsented public addresses and preserves the verified owner-only user
   policy. Never restore the historical backup blindly.

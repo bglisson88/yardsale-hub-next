@@ -44,7 +44,10 @@ const emulatorEnvironment = () => ({
 Object.assign(process.env, emulatorEnvironment());
 delete process.env.YSH_FUNCTIONS_SERVICE_ACCOUNT;
 
-const { buildProfileCallableOptions } = require('../lib/runtime-options.js');
+const {
+  buildProfileCallableOptions,
+  buildProfileEventOptions,
+} = require('../lib/runtime-options.js');
 
 test('builds the exact reviewed staging options', () => {
   assert.deepEqual(buildProfileCallableOptions(stagingEnvironment()), {
@@ -196,5 +199,30 @@ test('isolates emulator mode to the demo project and forbids service accounts', 
   assert.throws(
     () => buildProfileCallableOptions(emulatorWithIdentity),
     /emulator mode must not configure a service account/,
+  );
+});
+
+test('projection triggers inherit the reviewed region, limits, and project identity', () => {
+  assert.deepEqual(buildProfileEventOptions(stagingEnvironment()), {
+    region: 'us-south1',
+    maxInstances: 2,
+    concurrency: 10,
+    timeoutSeconds: 30,
+    memory: '256MiB',
+    minInstances: 0,
+    serviceAccount:
+      'yardsale-hub-staging-backend@yardsale-hub-staging.iam.gserviceaccount.com',
+  });
+  assert.deepEqual(buildProfileEventOptions(emulatorEnvironment()), {
+    region: 'us-south1',
+    maxInstances: 2,
+    concurrency: 10,
+    timeoutSeconds: 30,
+    memory: '256MiB',
+    minInstances: 0,
+  });
+  assert.throws(
+    () => buildProfileEventOptions({ ...stagingEnvironment(), GCLOUD_PROJECT: 'other-project' }),
+    /selected project does not match/,
   );
 });

@@ -1,5 +1,5 @@
 import type { CallableOptions } from 'firebase-functions/v2/https';
-import type { MemoryOption } from 'firebase-functions/v2';
+import type { EventHandlerOptions, MemoryOption } from 'firebase-functions/v2';
 
 const STAGING_PROJECT_ID = 'yardsale-hub-staging';
 const PRODUCTION_PROJECT_ID = 'yardsale-hub-93c49';
@@ -154,4 +154,17 @@ export function buildProfileCallableOptions(
   configurationError('cloud runtime mode does not match an explicitly configured project');
 }
 
+export function buildProfileEventOptions(env: RuntimeEnvironment): EventHandlerOptions {
+  const callableOptions = buildProfileCallableOptions(env);
+  const options: EventHandlerOptions = {
+    region: REQUIRED_REGION,
+    ...REQUIRED_LIMITS,
+  };
+  if (callableOptions.serviceAccount) {
+    options.serviceAccount = callableOptions.serviceAccount;
+  }
+  return options;
+}
+
 export const profileCallableOptions = buildProfileCallableOptions(process.env);
+export const profileEventOptions = buildProfileEventOptions(process.env);

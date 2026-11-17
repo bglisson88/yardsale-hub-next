@@ -27,6 +27,21 @@ export interface YardSaleEvent {
   eventVersion?: number;
 }
 
+export interface PublicYardSaleEvent {
+  id: string;
+  title: string;
+  description: string;
+  location: string;
+  locationId: string;
+  locationVisibility: 'general' | 'exact';
+  startDate: Date;
+  endDate: Date;
+  photoURL: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  itemCount: number;
+}
+
 export interface Item {
   id: string;
   userId: string;
