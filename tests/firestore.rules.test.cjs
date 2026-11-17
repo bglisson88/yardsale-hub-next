@@ -878,6 +878,43 @@ test('public exact-address access requires a matching server consent revision', 
   }));
 });
 
+test('callable-shaped general addresses remain private through exact consent transitions', async () => {
+  const eventPath = 'yardSaleEvents/callable-transitions';
+  const privatePath = 'eventPrivate/callable-transitions';
+  const markerPath = 'eventAddressConsent/callable-transitions';
+  const anonymousRef = doc(anonymousDatabase(), privatePath);
+  const ownerRef = doc(database('alice'), privatePath);
+  const privateRecord = { userId: 'alice', address: '12 Main Street' };
+  await seed(eventPath, publicEvent('alice', { eventVersion: 1 }));
+  await seed(privatePath, privateRecord);
+  await assertFails(getDoc(anonymousRef));
+  assert.equal((await assertSucceeds(getDoc(ownerRef))).data().address, privateRecord.address);
+
+  await seed(eventPath, publicEvent('alice', {
+    locationVisibility: 'exact', eventVersion: 2,
+  }));
+  await seed(privatePath, { ...privateRecord, addressRevision: 'revision-2' });
+  await assertFails(getDoc(anonymousRef));
+  const marker = {
+    organizerUid: 'alice', consentVersion: 'exact-address-v1',
+    addressRevision: 'revision-2', grantedAt: createdAt, operationId: 'operation-2',
+  };
+  await seed(markerPath, { ...marker, consentVersion: 'unsupported' });
+  await assertFails(getDoc(anonymousRef));
+  await seed(markerPath, marker);
+  await assertSucceeds(getDoc(anonymousRef));
+
+  // Even a leftover marker must not publish a downgraded general address.
+  await seed(eventPath, publicEvent('alice', { eventVersion: 3 }));
+  await assertFails(getDoc(anonymousRef));
+  await environment.withSecurityRulesDisabled(async context => {
+    await deleteDoc(doc(context.firestore(), markerPath));
+  });
+  await seed(privatePath, privateRecord);
+  await assertFails(getDoc(anonymousRef));
+  assert.equal((await assertSucceeds(getDoc(ownerRef))).data().address, privateRecord.address);
+});
+
 test('only the event owner may create or update an event', async () => {
   const alice = database('alice');
   const eventRef = doc(alice, 'yardSaleEvents', 'owned');

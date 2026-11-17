@@ -304,13 +304,14 @@ test('general downgrade revokes the active marker and retains only a private add
     }],
   ]));
   mockFirestore(t, firestore);
-  await saveEventWithConsent.run(request(eventInput({
+  const input = eventInput({
     expectedEventVersion: 2,
     locationVisibility: 'general',
     address: '12 Main Street',
     consentVersion: null,
     consentConfirmed: false,
-  })));
+  });
+  const result = await saveEventWithConsent.run(request(input));
   assert.equal(firestore.records.get('yardSaleEvents/event-1').locationVisibility, 'general');
   assert.equal(firestore.records.has('eventAddressConsent/event-1'), false);
   assert.deepEqual(firestore.records.get('eventPrivate/event-1'), {
@@ -322,6 +323,70 @@ test('general downgrade revokes the active marker and retains only a private add
   )[1];
   assert.equal(history.action, 'revoked');
   assert.equal(history.addressRevision, 'old-revision');
+  const writeCount = firestore.writes.length;
+  assert.deepEqual(await saveEventWithConsent.run(request(input)), result);
+  await assertError(() => saveEventWithConsent.run(request({
+    ...input, address: 'Changed retry address',
+  })), 'already-exists');
+  assert.equal(firestore.writes.length, writeCount);
+});
+
+test('general saves create, update or remove only the owner private address and retry without writes', async t => {
+  for (const existingAddress of [null, 'Old private address']) {
+    for (const address of ['', '  New private address  ']) {
+      await t.test(`${existingAddress ? 'existing' : 'missing'} private record, ${address ? 'supplied' : 'empty'} address`, async t => {
+        const firestore = new FakeFirestore(new Map([
+          ['yardSaleEvents/event-1', ownerEvent({ eventVersion: 1 })],
+        ]));
+        if (existingAddress) {
+          firestore.records.set('eventPrivate/event-1', {
+            userId: 'organizer-1', address: existingAddress,
+          });
+        }
+        mockFirestore(t, firestore);
+        const input = eventInput({
+          expectedEventVersion: 1,
+          locationVisibility: 'general',
+          address,
+          consentVersion: null,
+          consentConfirmed: false,
+        });
+        const result = await saveEventWithConsent.run(request(input));
+        assert.deepEqual(result, { eventId: 'event-1', eventVersion: 2 });
+        const publicEvent = firestore.records.get('yardSaleEvents/event-1');
+        assert.equal(publicEvent.locationVisibility, 'general');
+        assert.equal(Object.hasOwn(publicEvent, 'address'), false);
+        assert.equal(firestore.records.has('eventAddressConsent/event-1'), false);
+        assert.deepEqual(firestore.records.get('eventPrivate/event-1'),
+          address ? { userId: 'organizer-1', address: address.trim() } : undefined);
+        const history = firestore.records.get(`eventAddressConsent/event-1/history/${input.operationId}`);
+        assert.equal(history.action, 'updated');
+        const writeCount = firestore.writes.length;
+        assert.deepEqual(await saveEventWithConsent.run(request(input)), result);
+        await assertError(() => saveEventWithConsent.run(request({
+          ...input, address: 'Changed retry address',
+        })), 'already-exists');
+        await assertError(
+          () => saveEventWithConsent.run(request(input, { uid: 'another-user', token: {} })),
+          'already-exists',
+        );
+        assert.equal(firestore.writes.length, writeCount);
+      });
+    }
+  }
+});
+
+test('general saves cannot overwrite a private record belonging to another organizer', async t => {
+  const firestore = new FakeFirestore(new Map([
+    ['yardSaleEvents/event-1', ownerEvent({ eventVersion: 1 })],
+    ['eventPrivate/event-1', { userId: 'another-user', address: 'Private' }],
+  ]));
+  mockFirestore(t, firestore);
+  await assertError(() => saveEventWithConsent.run(request(eventInput({
+    expectedEventVersion: 1, locationVisibility: 'general',
+    consentVersion: null, consentConfirmed: false,
+  }))), 'failed-precondition');
+  assert.equal(firestore.writes.length, 0);
 });
 
 test('rejects a downgrade with an unapproved public location without revoking consent', async t => {
@@ -380,6 +445,31 @@ test('makes committed exact saves idempotent and rejects a conflicting operation
     { eventId: 'event-1', eventVersion: 1 },
   );
   assert.equal(firestore.writes.length, writeCount);
+  assert.deepEqual(await saveEventWithConsent.run(request(eventInput({
+    title: `  ${input.title}  `,
+    description: `  ${input.description}  `,
+    address: `  ${input.address}  `,
+    location: `  ${input.location}  `,
+  }))), { eventId: 'event-1', eventVersion: 1 });
+  for (const changed of [
+    { title: 'Different title' },
+    { description: 'Different description' },
+    { address: 'Different private address' },
+    { location: 'Different location' },
+    { locationId: 'different-id' },
+    { photoURL: 'https://example.test/changed.jpg' },
+    { startDateMs: input.startDateMs + 1000 },
+    { endDateMs: input.endDateMs + 1000 },
+    { itemCount: 1 },
+    { expectedEventVersion: 1 },
+    { expectedUpdatedAtMs: 1 },
+  ]) {
+    await assertError(
+      () => saveEventWithConsent.run(request(eventInput(changed))),
+      'already-exists',
+    );
+  }
+  assert.equal(firestore.writes.length, writeCount);
   await assertError(
     () => saveEventWithConsent.run(request(eventInput({
       locationVisibility: 'general',
@@ -388,6 +478,58 @@ test('makes committed exact saves idempotent and rejects a conflicting operation
     }))),
     'already-exists',
   );
+});
+
+test('retries return the original result after later saves without repeating transitions', async t => {
+  const firestore = new FakeFirestore();
+  mockFirestore(t, firestore);
+  const exact = eventInput();
+  await saveEventWithConsent.run(request(exact));
+  const general = eventInput({
+    operationId: '123e4567-e89b-42d3-a456-426614174001',
+    expectedEventVersion: 1, locationVisibility: 'general',
+    consentVersion: null, consentConfirmed: false,
+  });
+  await saveEventWithConsent.run(request(general));
+  const next = {
+    ...general,
+    operationId: '123e4567-e89b-42d3-a456-426614174002',
+    expectedEventVersion: 2, address: '',
+  };
+  await saveEventWithConsent.run(request(next));
+  assert.equal(firestore.records.has('eventPrivate/event-1'), false);
+  assert.equal(firestore.records.has('eventAddressConsent/event-1'), false);
+  const republish = eventInput({
+    operationId: '123e4567-e89b-42d3-a456-426614174003',
+    expectedEventVersion: 3,
+    address: 'New exact address',
+  });
+  await saveEventWithConsent.run(request(republish));
+  const revision = firestore.records.get('eventPrivate/event-1').addressRevision;
+  assert.equal(firestore.records.get('eventAddressConsent/event-1').addressRevision, revision);
+  assert.equal(Object.hasOwn(firestore.records.get('yardSaleEvents/event-1'), 'address'), false);
+  const writeCount = firestore.writes.length;
+  for (const [input, version] of [[exact, 1], [general, 2], [next, 3], [republish, 4]]) {
+    assert.deepEqual(await saveEventWithConsent.run(request(input)),
+      { eventId: 'event-1', eventVersion: version });
+  }
+  assert.equal(firestore.writes.length, writeCount);
+  assert.equal(firestore.records.get('yardSaleEvents/event-1').eventVersion, 4);
+  assert.equal(firestore.records.get('eventPrivate/event-1').address, 'New exact address');
+  assert.equal(firestore.records.get('eventAddressConsent/event-1').addressRevision, revision);
+});
+
+test('unbound historical operations fail closed instead of assuming payload equivalence', async t => {
+  const input = eventInput();
+  const firestore = new FakeFirestore(new Map([
+    [`eventAddressConsent/event-1/history/${input.operationId}`, {
+      organizerUid: 'organizer-1', action: 'granted',
+      expectedEventVersion: 0, resultEventVersion: 1,
+    }],
+  ]));
+  mockFirestore(t, firestore);
+  await assertError(() => saveEventWithConsent.run(request(input)), 'already-exists');
+  assert.equal(firestore.writes.length, 0);
 });
 
 test('deletes the event, private address, and active marker atomically with durable history', async t => {
@@ -430,8 +572,20 @@ test('deletes the event, private address, and active marker atomically with dura
     firestore.records.get('eventAddressConsent/event-1/history/123e4567-e89b-42d3-a456-426614174001').action,
     'deleted',
   );
+  const writeCount = firestore.writes.length;
   assert.deepEqual(
     await deleteEventWithConsent.run(request(input)),
     { eventId: 'event-1', deleted: true },
   );
+  await assertError(
+    () => deleteEventWithConsent.run(request({ ...input, expectedUpdatedAtMs: 1 })),
+    'already-exists',
+  );
+  await assertError(
+    () => saveEventWithConsent.run(request(eventInput({
+      operationId: input.operationId, expectedEventVersion: 2,
+    }))),
+    'already-exists',
+  );
+  assert.equal(firestore.writes.length, writeCount);
 });

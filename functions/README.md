@@ -154,6 +154,16 @@ deletions revoke the active marker and record history in the same transaction.
 General-event client writes remain supported without `eventVersion`, and
 callable-managed transitions initialize it from zero.
 
+Operation history binds each operation ID to a SHA-256 fingerprint of the
+normalized request and callable type. Identical retries return the original
+result without writes, even after later edits; changed payloads are rejected.
+Older history without a fingerprint is not accepted as proof of an identical
+request: reload the event and use a new operation ID. Fingerprints are
+server-only metadata, not anonymized data or proof of consent provenance.
+General callable saves create or replace the owner-only private address when
+a nonempty address is supplied; an empty address removes any existing private
+record. Neither operation publishes the address in the public event document.
+
 The callable requires a canonical `locationId` and matching `location` from an
 active trusted `generalLocations` record. It validates the record in the same
 transaction as the event write. The frontend searches this catalog rather than

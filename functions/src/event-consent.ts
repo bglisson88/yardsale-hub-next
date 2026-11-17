@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   FieldValue,
   Timestamp,
@@ -39,7 +39,7 @@ const DELETE_KEYS = [
 ];
 
 type EventVisibility = 'general' | 'exact';
-type EventAction = 'granted' | 'revoked' | 'updated' | 'deleted';
+type EventOperation = 'save' | 'delete';
 
 interface SaveRequest {
   eventId: string;
@@ -236,16 +236,21 @@ function isConsentMarker(value: unknown): value is DocumentData {
 function existingOperation(
   value: unknown,
   uid: string,
-  action: EventAction,
+  operation: EventOperation,
   expectedVersion: number,
+  requestFingerprint: string,
 ): DocumentData | null {
   if (value === undefined) return null;
   if (
     !isRecord(value) ||
     value.organizerUid !== uid ||
-    value.action !== action ||
+    !(operation === 'delete'
+      ? value.action === 'deleted'
+      : value.action === 'granted' || value.action === 'revoked' || value.action === 'updated') ||
+    value.requestFingerprint !== requestFingerprint ||
     value.expectedEventVersion !== expectedVersion ||
-    !Number.isSafeInteger(value.resultEventVersion)
+    !Number.isSafeInteger(value.resultEventVersion) ||
+    value.resultEventVersion !== expectedVersion + 1
   ) {
     throw new HttpsError(
       'already-exists',
@@ -253,6 +258,15 @@ function existingOperation(
     );
   }
   return value;
+}
+
+function fingerprintRequest(
+  operation: EventOperation,
+  input: SaveRequest | ReturnType<typeof parseDeleteRequest>,
+): string {
+  return createHash('sha256')
+    .update(JSON.stringify([1, operation, input]))
+    .digest('hex');
 }
 
 function mapInternalError(error: unknown): never {
@@ -271,7 +285,7 @@ export const saveEventWithConsent = onCall(profileCallableOptions, async request
   const markerRef = firestore.collection('eventAddressConsent').doc(input.eventId);
   const historyRef = markerRef.collection('history').doc(input.operationId);
   const locationRef = firestore.collection('generalLocations').doc(input.locationId);
-  const action: EventAction = input.locationVisibility === 'exact' ? 'granted' : 'revoked';
+  const requestFingerprint = fingerprintRequest('save', input);
 
   try {
     return await firestore.runTransaction(async transaction => {
@@ -280,8 +294,9 @@ export const saveEventWithConsent = onCall(profileCallableOptions, async request
         const previous = existingOperation(
           historySnapshot.data(),
           uid,
-          action,
+          'save',
           input.expectedEventVersion,
+          requestFingerprint,
         );
         if (previous) {
           return {
@@ -369,7 +384,7 @@ export const saveEventWithConsent = onCall(profileCallableOptions, async request
           operationId: input.operationId,
         });
       } else {
-        if (privateSnapshot.exists && input.address) {
+        if (input.address) {
           transaction.set(privateRef, { userId: uid, address: input.address });
         } else if (privateSnapshot.exists) {
           transaction.delete(privateRef);
@@ -382,6 +397,7 @@ export const saveEventWithConsent = onCall(profileCallableOptions, async request
           ? 'granted'
           : markerSnapshot.exists ? 'revoked' : 'updated',
         organizerUid: uid,
+        requestFingerprint,
         consentVersion: input.locationVisibility === 'exact'
           ? EXACT_ADDRESS_CONSENT_VERSION
           : null,
@@ -408,6 +424,7 @@ export const deleteEventWithConsent = onCall(profileCallableOptions, async reque
   const privateRef = firestore.collection('eventPrivate').doc(input.eventId);
   const markerRef = firestore.collection('eventAddressConsent').doc(input.eventId);
   const historyRef = markerRef.collection('history').doc(input.operationId);
+  const requestFingerprint = fingerprintRequest('delete', input);
 
   try {
     return await firestore.runTransaction(async transaction => {
@@ -416,8 +433,9 @@ export const deleteEventWithConsent = onCall(profileCallableOptions, async reque
         const previous = existingOperation(
           historySnapshot.data(),
           uid,
-          'deleted',
+          'delete',
           input.expectedEventVersion,
+          requestFingerprint,
         );
         if (previous) return { eventId: input.eventId, deleted: true };
       }
@@ -456,6 +474,7 @@ export const deleteEventWithConsent = onCall(profileCallableOptions, async reque
       transaction.create(historyRef, {
         action: 'deleted',
         organizerUid: uid,
+        requestFingerprint,
         consentVersion: isConsentMarker(markerSnapshot.data())
           ? EXACT_ADDRESS_CONSENT_VERSION
           : null,
