@@ -25,10 +25,7 @@ const CREATED_AT = Timestamp.fromDate(new Date('2026-01-01T00:00:00.000Z'));
 const UPDATED_AT = Timestamp.fromDate(new Date('2026-01-02T00:00:00.000Z'));
 const START_DATE = Timestamp.fromDate(new Date('2026-01-03T10:00:00.000Z'));
 const END_DATE = Timestamp.fromDate(new Date('2026-01-03T12:00:00.000Z'));
-const SUPPORTED_CONFIGS = [
-  { file: 'firebase.json', eventWritesAllowed: true },
-  { file: 'firebase.event-freeze.json', eventWritesAllowed: false },
-];
+const CONFIG_FILE = 'firebase.json';
 
 function database(environment, uid) {
   return uid
@@ -86,162 +83,153 @@ function publicEventDocument() {
   };
 }
 
-for (const { file, eventWritesAllowed } of SUPPORTED_CONFIGS) {
-  test(`${file} protects public profiles and username collections`, async () => {
-    const config = JSON.parse(fs.readFileSync(file, 'utf8'));
-    const environment = await initializeTestEnvironment({
-      projectId: PROJECT_ID,
-      firestore: {
-        rules: fs.readFileSync(path.resolve(config.firestore.rules), 'utf8'),
-      },
-    });
+test('firebase.json protects public profiles and username collections', async () => {
+  const config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+  const environment = await initializeTestEnvironment({
+    projectId: PROJECT_ID,
+    firestore: {
+      rules: fs.readFileSync(path.resolve(config.firestore.rules), 'utf8'),
+    },
+  });
 
-    try {
-      await environment.clearFirestore();
-      await environment.withSecurityRulesDisabled(async context => {
-        const db = context.firestore();
-        await Promise.all([
-          setDoc(doc(db, 'publicProfiles/alice'), {
-            username: 'alice',
-            displayName: 'Alice Seller',
-            photoURL: null,
-            memberSince: CREATED_AT,
-          }),
-          setDoc(doc(db, 'usernameClaims/alice'), { uid: 'alice' }),
-          setDoc(doc(db, 'usernameState/alice'), { lastRenamedAt: null }),
-          setDoc(doc(db, 'reservedUsernames/admin'), { reserved: true }),
-          setDoc(doc(db, 'users/alice'), {
-            id: 'alice',
-            email: 'private@example.test',
-            displayName: 'Alice Seller',
-            photoURL: null,
-            location: 'Nederland',
-            bio: '',
-            createdAt: CREATED_AT,
-            updatedAt: UPDATED_AT,
-          }),
-          setDoc(doc(db, 'items/chair'), itemDocument()),
-          setDoc(doc(db, 'yardSaleEvents/sale'), eventDocument()),
-          setDoc(doc(db, 'publicYardSaleEvents/sale'), publicEventDocument()),
-          setDoc(doc(db, 'generalLocations/nederland'), {
-            kind: 'city', displayName: 'Nederland', active: true,
-            approvedAliases: [], countryCode: 'US', regionCode: 'TX',
-          }),
-          setDoc(doc(db, 'generalLocationAliases/current'), {
-            schemaVersion: 1, aliases: { Nederland: 'nederland' },
-          }),
-        ]);
-      });
-
-      const aliceUid = 'alice';
-      const anonymous = database(environment);
-      const alice = database(environment, aliceUid);
-      const bob = database(environment, 'bob');
-      const profileRef = doc(anonymous, 'publicProfiles', 'alice');
-
-      const publicProfile = await assertSucceeds(getDoc(profileRef));
-      assert.deepEqual(Object.keys(publicProfile.data()).sort(), [
-        'displayName',
-        'memberSince',
-        'photoURL',
-        'username',
-      ]);
-      assert.equal(publicProfile.data().photoURL, null);
-      assert.equal((await assertSucceeds(getDoc(
-        doc(alice, 'publicProfiles', 'alice'),
-      ))).data().username, 'alice');
-
-      for (const db of [anonymous, alice, bob]) {
-        await assertFails(getDocs(collection(db, 'publicProfiles')));
-        await assertFails(setDoc(doc(db, 'publicProfiles/new'), {
-          username: 'new',
-          displayName: 'New User',
+  try {
+    await environment.clearFirestore();
+    await environment.withSecurityRulesDisabled(async context => {
+      const db = context.firestore();
+      await Promise.all([
+        setDoc(doc(db, 'publicProfiles/alice'), {
+          username: 'alice',
+          displayName: 'Alice Seller',
           photoURL: null,
           memberSince: CREATED_AT,
-        }));
-        await assertFails(updateDoc(doc(db, 'publicProfiles', 'alice'), {
-          displayName: 'Changed',
-        }));
-        await assertFails(deleteDoc(doc(db, 'publicProfiles', 'alice')));
-      }
-      for (const db of [anonymous, alice, bob]) {
-        await assertFails(getDoc(
-          doc(db, 'usernameClaims', 'alice'),
-        ));
-      }
-      for (const db of [anonymous, alice, bob]) {
-        await assertFails(getDocs(collection(db, 'usernameClaims')));
-        await assertFails(setDoc(doc(db, 'usernameClaims', 'new'), { uid: 'new' }));
-        await assertFails(updateDoc(doc(db, 'usernameClaims', 'alice'), { uid: 'bob' }));
-        await assertFails(deleteDoc(doc(db, 'usernameClaims', 'alice')));
-      }
+        }),
+        setDoc(doc(db, 'usernameClaims/alice'), { uid: 'alice' }),
+        setDoc(doc(db, 'usernameState/alice'), { lastRenamedAt: null }),
+        setDoc(doc(db, 'reservedUsernames/admin'), { reserved: true }),
+        setDoc(doc(db, 'users/alice'), {
+          id: 'alice',
+          email: 'private@example.test',
+          displayName: 'Alice Seller',
+          photoURL: null,
+          location: 'Nederland',
+          bio: '',
+          createdAt: CREATED_AT,
+          updatedAt: UPDATED_AT,
+        }),
+        setDoc(doc(db, 'items/chair'), itemDocument()),
+        setDoc(doc(db, 'yardSaleEvents/sale'), eventDocument()),
+        setDoc(doc(db, 'publicYardSaleEvents/sale'), publicEventDocument()),
+        setDoc(doc(db, 'generalLocations/nederland'), {
+          kind: 'city', displayName: 'Nederland', active: true,
+          approvedAliases: [], countryCode: 'US', regionCode: 'TX',
+        }),
+        setDoc(doc(db, 'generalLocationAliases/current'), {
+          schemaVersion: 1, aliases: { Nederland: 'nederland' },
+        }),
+      ]);
+    });
 
-      for (const [collectionName, documentId] of [
-        ['usernameState', 'alice'],
-        ['reservedUsernames', 'admin'],
-      ]) {
-        for (const db of [anonymous, alice, bob]) {
-          const documentRef = doc(db, collectionName, documentId);
-          await assertFails(getDoc(documentRef));
-          await assertFails(getDocs(collection(db, collectionName)));
-          await assertFails(setDoc(doc(db, collectionName, 'new'), { value: true }));
-          await assertFails(updateDoc(documentRef, { value: true }));
-          await assertFails(deleteDoc(documentRef));
-        }
-      }
+    const aliceUid = 'alice';
+    const anonymous = database(environment);
+    const alice = database(environment, aliceUid);
+    const bob = database(environment, 'bob');
+    const profileRef = doc(anonymous, 'publicProfiles', 'alice');
 
-      assert.equal((await assertSucceeds(getDoc(
-        doc(alice, 'users', 'alice'),
-      ))).data().email, 'private@example.test');
-      for (const db of [anonymous, bob]) {
-        await assertFails(getDoc(doc(db, 'users', 'alice')));
-      }
-      for (const db of [anonymous, alice, bob]) {
-        await assertFails(getDocs(collection(db, 'users')));
-      }
+    const publicProfile = await assertSucceeds(getDoc(profileRef));
+    assert.deepEqual(Object.keys(publicProfile.data()).sort(), [
+      'displayName',
+      'memberSince',
+      'photoURL',
+      'username',
+    ]);
+    assert.equal(publicProfile.data().photoURL, null);
+    assert.equal((await assertSucceeds(getDoc(
+      doc(alice, 'publicProfiles', 'alice'),
+    ))).data().username, 'alice');
 
-      const itemRef = doc(alice, 'items', 'chair');
-      assert.equal((await assertSucceeds(getDoc(
-        doc(anonymous, 'items', 'chair'),
-      ))).data().title, 'Chair');
-      await assertSucceeds(updateDoc(itemRef, {
-        title: 'Updated chair',
-        updatedAt: UPDATED_AT,
+    for (const db of [anonymous, alice, bob]) {
+      await assertFails(getDocs(collection(db, 'publicProfiles')));
+      await assertFails(setDoc(doc(db, 'publicProfiles/new'), {
+        username: 'new',
+        displayName: 'New User',
+        photoURL: null,
+        memberSince: CREATED_AT,
       }));
-      await assertFails(updateDoc(doc(bob, 'items', 'chair'), {
-        title: 'Unauthorized',
-        updatedAt: UPDATED_AT,
+      await assertFails(updateDoc(doc(db, 'publicProfiles', 'alice'), {
+        displayName: 'Changed',
       }));
-
-      const eventRef = doc(alice, 'yardSaleEvents', 'sale');
-      assert.equal((await assertSucceeds(getDoc(
-        doc(anonymous, 'yardSaleEvents', 'sale'),
-      ))).data().title, 'Community sale');
-      const sourceEvents = getDocs(collection(anonymous, 'yardSaleEvents'));
-      await assertFails(sourceEvents);
-      const publicEvents = getDocs(collection(anonymous, 'publicYardSaleEvents'));
-      if (eventWritesAllowed) {
-        assert.equal((await assertSucceeds(publicEvents)).size, 1);
-      } else {
-        await assertFails(publicEvents);
-      }
-      const ownerEvents = await assertSucceeds(getDocs(query(
-        collection(alice, 'yardSaleEvents'),
-        where('userId', '==', aliceUid),
-      )));
-      assert.equal(ownerEvents.size, 1);
-      assert.equal(ownerEvents.docs[0].id, 'sale');
-      const updateEvent = updateDoc(eventRef, {
-        title: 'Updated sale',
-        updatedAt: UPDATED_AT,
-      });
-      if (eventWritesAllowed) {
-        await assertSucceeds(updateEvent);
-      } else {
-        await assertFails(updateEvent);
-      }
-    } finally {
-      await environment.cleanup();
+      await assertFails(deleteDoc(doc(db, 'publicProfiles', 'alice')));
     }
-  });
-}
+    for (const db of [anonymous, alice, bob]) {
+      await assertFails(getDoc(
+        doc(db, 'usernameClaims', 'alice'),
+      ));
+    }
+    for (const db of [anonymous, alice, bob]) {
+      await assertFails(getDocs(collection(db, 'usernameClaims')));
+      await assertFails(setDoc(doc(db, 'usernameClaims', 'new'), { uid: 'new' }));
+      await assertFails(updateDoc(doc(db, 'usernameClaims', 'alice'), { uid: 'bob' }));
+      await assertFails(deleteDoc(doc(db, 'usernameClaims', 'alice')));
+    }
+
+    for (const [collectionName, documentId] of [
+      ['usernameState', 'alice'],
+      ['reservedUsernames', 'admin'],
+    ]) {
+      for (const db of [anonymous, alice, bob]) {
+        const documentRef = doc(db, collectionName, documentId);
+        await assertFails(getDoc(documentRef));
+        await assertFails(getDocs(collection(db, collectionName)));
+        await assertFails(setDoc(doc(db, collectionName, 'new'), { value: true }));
+        await assertFails(updateDoc(documentRef, { value: true }));
+        await assertFails(deleteDoc(documentRef));
+      }
+    }
+
+    assert.equal((await assertSucceeds(getDoc(
+      doc(alice, 'users', 'alice'),
+    ))).data().email, 'private@example.test');
+    for (const db of [anonymous, bob]) {
+      await assertFails(getDoc(doc(db, 'users', 'alice')));
+    }
+    for (const db of [anonymous, alice, bob]) {
+      await assertFails(getDocs(collection(db, 'users')));
+    }
+
+    const itemRef = doc(alice, 'items', 'chair');
+    assert.equal((await assertSucceeds(getDoc(
+      doc(anonymous, 'items', 'chair'),
+    ))).data().title, 'Chair');
+    await assertSucceeds(updateDoc(itemRef, {
+      title: 'Updated chair',
+      updatedAt: UPDATED_AT,
+    }));
+    await assertFails(updateDoc(doc(bob, 'items', 'chair'), {
+      title: 'Unauthorized',
+      updatedAt: UPDATED_AT,
+    }));
+
+    const eventRef = doc(alice, 'yardSaleEvents', 'sale');
+    assert.equal((await assertSucceeds(getDoc(
+      doc(anonymous, 'yardSaleEvents', 'sale'),
+    ))).data().title, 'Community sale');
+    await assertFails(getDocs(collection(anonymous, 'yardSaleEvents')));
+    const publicEvents = await assertSucceeds(getDocs(collection(
+      anonymous,
+      'publicYardSaleEvents',
+    )));
+    assert.equal(publicEvents.size, 1);
+    const ownerEvents = await assertSucceeds(getDocs(query(
+      collection(alice, 'yardSaleEvents'),
+      where('userId', '==', aliceUid),
+    )));
+    assert.equal(ownerEvents.size, 1);
+    assert.equal(ownerEvents.docs[0].id, 'sale');
+    await assertSucceeds(updateDoc(eventRef, {
+      title: 'Updated sale',
+      updatedAt: UPDATED_AT,
+    }));
+  } finally {
+    await environment.cleanup();
+  }
+});

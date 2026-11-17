@@ -111,8 +111,16 @@ do not share a transaction: an account deleted after the Auth lookup may
 leave an orphaned profile. A transaction query does not make that cross-service
 race atomic. Both limitations require separate follow-up.
 
-Both `firebase.json` and `firebase.event-freeze.json` retain their existing
-Firestore and Storage rules selections. The rules suite exercises both.
+Only `firebase.json` is an approved Firebase deployment configuration. The
+obsolete `firebase.event-freeze.json` configuration and its paired Firestore
+and Storage rules were retired because they did not preserve current privacy
+and permission guarantees; do not recreate or use them for deployment.
+
+A future emergency event freeze must account for both Firestore client Rules
+and Admin SDK callables. Firestore Rules do not restrict Admin SDK writes, so
+an emergency procedure must separately disable or gate event-writing
+Functions, preserve consent-validated private-address reads, and be validated
+in staging before use.
 Admin initialization in the Functions runtime uses managed credentials for a
 future deployment; no service-account key is needed. Deployment requires
 separate staging-only IAM and project review.

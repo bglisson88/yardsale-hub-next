@@ -246,6 +246,14 @@ creation/editing must remain usable during that window.
 
 ## Rollback and recovery
 
+- `firebase.json` is the only approved Firebase deployment configuration. The
+  obsolete `firebase.event-freeze.json` configuration and its paired
+  `firestore.event-freeze.rules` and `storage.event-freeze.rules` files are
+  retired and must not be used for deployment or rollback.
+- A future emergency event freeze must separately stop or gate Admin SDK
+  callables; Firestore Rules do not constrain Admin SDK writes. Preserve
+  consent-validated private-address reads and validate any emergency
+  configuration in staging before use.
 - If website promotion fails, leave the prior production website in place;
   exact writes remain disabled until a compatible website is promoted.
 - If projection Functions fail, keep anonymous source listing denied and do

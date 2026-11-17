@@ -1150,3 +1150,22 @@ test('malformed legacy event documents are not publicly readable by document ID'
     getDocs(collection(anonymousDatabase(), 'publicYardSaleEvents')),
   )).size, 0);
 });
+
+test('anonymous source-event gets reject inline private addresses while preserving owner access', async () => {
+  await seed('yardSaleEvents/legacy-inline-address', {
+    ...publicEvent('alice', { locationVisibility: 'exact' }),
+    address: '12 Main Street',
+  });
+
+  await assertFails(getDoc(doc(
+    anonymousDatabase(),
+    'yardSaleEvents',
+    'legacy-inline-address',
+  )));
+  const ownerEvent = await assertSucceeds(getDoc(doc(
+    database('alice'),
+    'yardSaleEvents',
+    'legacy-inline-address',
+  )));
+  assert.equal(ownerEvent.data().address, '12 Main Street');
+});
