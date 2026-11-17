@@ -287,35 +287,64 @@ test('review creation rejects forged identities, self reviews, invalid content a
   for (const rating of [0, 6]) {
     await assertFails(setDoc(doc(alice, 'reviews', 'seller_alice'), { ...review, rating }));
   }
+  for (const rating of [1.5, '5']) {
+    await assertFails(setDoc(doc(alice, 'reviews', 'seller_alice'), { ...review, rating }));
+  }
+  for (const [field, value] of Object.entries(review)) {
+    const incompleteReview = { ...review };
+    delete incompleteReview[field];
+    await assertFails(setDoc(doc(alice, 'reviews', 'seller_alice'), incompleteReview));
+  }
+  await assertFails(setDoc(doc(alice, 'reviews', 'seller_alice'), {
+    ...review, reviewerId: '',
+  }));
+  await assertFails(setDoc(doc(alice, 'reviews', 'seller_alice'), {
+    ...review, sellerId: '',
+  }));
+  await assertFails(setDoc(doc(alice, 'reviews', 'seller_alice'), {
+    ...review, comment: 123,
+  }));
   await assertFails(setDoc(doc(alice, 'reviews', 'seller_alice'), { ...review, comment: 'x'.repeat(501) }));
+  await assertFails(setDoc(doc(alice, 'reviews', 'seller_alice'), {
+    ...review, extra: 'unexpected',
+  }));
   await assertFails(setDoc(doc(alice, 'reviews', 'alice_seller'), review));
-  await assertFails(setDoc(doc(alice, 'reviews', 'seller_alice'), { reviewerId: 'alice', sellerId: 'seller' }));
 });
 
-test('reviewers can edit and delete reviews but cannot change either identity', async () => {
+test('review updates validate the full document and preserve reviewer-only permissions', async () => {
   const review = { reviewerId: 'alice', sellerId: 'seller', rating: 3, comment: 'Good' };
   await seed('reviews/seller_alice', review);
   const ref = doc(database('alice'), 'reviews', 'seller_alice');
   await assertSucceeds(updateDoc(ref, { rating: 4, comment: 'Updated' }));
+  await assertSucceeds(updateDoc(ref, { comment: 'Valid partial update' }));
+  for (const rating of [0, 6, 1.5, '5']) {
+    await assertFails(updateDoc(ref, { rating }));
+  }
+  await assertFails(updateDoc(ref, { comment: 'x'.repeat(501) }));
+  await assertFails(updateDoc(ref, { comment: 123 }));
+  await assertFails(updateDoc(ref, { extra: 'unexpected' }));
   await assertFails(updateDoc(ref, { reviewerId: 'bob' }));
   await assertFails(updateDoc(ref, { sellerId: 'bob' }));
   await assertFails(updateDoc(ref, { reviewerId: deleteField() }));
   await assertFails(updateDoc(ref, { sellerId: deleteField() }));
+  await assertFails(updateDoc(ref, { rating: deleteField() }));
+  await assertFails(updateDoc(ref, { comment: deleteField() }));
   await assertFails(setDoc(ref, { ...review, sellerId: 'bob' }));
   for (const db of [anonymousDatabase(), database('bob'), database('seller')]) {
     await assertFails(updateDoc(doc(db, 'reviews', 'seller_alice'), { rating: 5 }));
     await assertFails(deleteDoc(doc(db, 'reviews', 'seller_alice')));
   }
-  // Production does not revalidate rating or comment on update.
-  await assertSucceeds(updateDoc(ref, { rating: 6, comment: 'x'.repeat(501) }));
   await assertSucceeds(deleteDoc(ref));
 });
 
-test('legacy reviews without sellerId can be edited without changing identity fields', async () => {
+test('legacy reviews allow only bounded comment updates without adding fields or identities', async () => {
   await seed('reviews/legacy', { reviewerId: 'alice', comment: 'Old' });
   const ref = doc(database('alice'), 'reviews', 'legacy');
   await assertSucceeds(updateDoc(ref, { comment: 'Updated' }));
   await assertFails(updateDoc(ref, { sellerId: 'seller' }));
+  await assertFails(updateDoc(ref, { reviewerId: 'bob' }));
+  await assertFails(updateDoc(ref, { extra: 'unexpected' }));
+  await assertFails(updateDoc(ref, { comment: 'x'.repeat(501) }));
   await assertSucceeds(deleteDoc(ref));
 });
 
