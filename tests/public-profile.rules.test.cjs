@@ -59,7 +59,6 @@ function eventDocument() {
     title: 'Community sale',
     description: 'Sale details',
     location: 'Nederland',
-    locationId: 'nederland',
     locationVisibility: 'general',
     startDate: START_DATE,
     endDate: END_DATE,
