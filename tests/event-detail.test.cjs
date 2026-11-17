@@ -31,7 +31,8 @@ async function loadEventDetail({
   privateDocument = { userId: 'owner', address: '12 Main Street' },
   privateError,
   publicError,
-  user = { id: 'owner' },
+  projection = {},
+  user = null,
 } = {}) {
   const state = [];
   const effects = [];
@@ -39,7 +40,8 @@ async function loadEventDetail({
   let cursor = 0;
   let tree;
   const eventData = {
-    userId: 'owner',
+    schemaVersion: 1,
+    locationId: 'nederland',
     title: 'Neighborhood Sale',
     description: 'Public event details',
     location: 'Nederland',
@@ -51,6 +53,18 @@ async function loadEventDetail({
     photoURL: null,
     itemCount: 3,
   };
+  const source = {
+    ...eventData,
+    userId: 'owner',
+    title: 'Legacy owner sale',
+    location: '99 Private Street',
+    address: '88 Inline Street',
+  };
+  const parser = { exports: {} };
+  vm.runInNewContext(ts.transpileModule(
+    fs.readFileSync(path.join(__dirname, '..', 'src/lib/public-event.ts'), 'utf8'),
+    { compilerOptions: { module: ts.ModuleKind.CommonJS } },
+  ).outputText, { exports: parser.exports, Date });
   const Icon = () => null;
   const imports = {
     react: {
@@ -63,18 +77,27 @@ async function loadEventDetail({
       },
       useEffect(effect) { effects.push(effect); },
     },
+    'firebase/auth': { onAuthStateChanged: (_auth, callback) => callback(user) },
     'firebase/firestore': {
       doc: (_db, collection, id) => `${collection}/${id}`,
-      getDoc: async path => {
+      getDocFromServer: async path => {
         documentReads.push(path);
-        if (path === 'yardSaleEvents/event-1') {
+        if (path === 'publicYardSaleEvents/event-1') {
           if (publicError) throw publicError;
-          return { exists: () => true, id: 'event-1', data: () => eventData };
+          return {
+            exists: () => projection !== null,
+            id: 'event-1',
+            data: () => ({ ...eventData, ...projection }),
+          };
+        }
+        if (path === 'yardSaleEvents/event-1') {
+          if (user?.uid !== source.userId) throw { code: 'permission-denied' };
+          return { data: () => source };
         }
         if (privateError) throw privateError;
         return {
           exists: () => privateDocument !== null,
-          data: () => privateDocument,
+          data: () => privateDocument ?? undefined,
         };
       },
     },
@@ -89,9 +112,8 @@ async function loadEventDetail({
       useParams: () => ({ id: 'event-1' }),
       useRouter: () => ({ push() {} }),
     },
-    '@/lib/firebase': { db: {} },
-    '@/hooks': { useAuthContext() {} },
-    '@/store': { useAuthStore: () => ({ user }) },
+    '@/lib/firebase': { auth: { currentUser: user }, db: {} },
+    '@/lib/public-event': parser.exports,
     '@/components': { LoadingSpinner: () => null },
     '@/lib/delete-event': { deleteOwnedEvent: async () => null },
     'react-hot-toast': { __esModule: true, default: { success() {}, error() {} } },
@@ -105,6 +127,9 @@ async function loadEventDetail({
 
   render();
   effects[0]();
+  effects.length = 0;
+  render();
+  effects[1]();
   await new Promise(resolve => setImmediate(resolve));
   const html = render();
   return { html, documentReads };
@@ -115,9 +140,9 @@ test('loads public event detail and shows an address returned by the consent-gat
   assert.match(html, /Neighborhood Sale/);
   assert.match(html, /Nederland/);
   assert.match(html, /12 Main Street/);
-  assert.match(html, /href="\/events\/event-1\/edit"/);
-  assert.match(html, /Delete Event/);
-  assert.deepEqual(documentReads, ['yardSaleEvents/event-1', 'eventPrivate/event-1']);
+  assert.match(html, /Get directions/);
+  assert.doesNotMatch(html, /Edit Event|Delete Event|99 Private Street|88 Inline Street/);
+  assert.deepEqual(documentReads, ['publicYardSaleEvents/event-1', 'eventPrivate/event-1']);
 });
 
 test('a denied private-address read preserves public details and falls back to general location', async () => {
@@ -144,17 +169,50 @@ test('general-location events do not request private addresses and retain owner 
   const { html, documentReads } = await loadEventDetail({
     locationVisibility: 'general',
     privateDocument: null,
+    user: { uid: 'owner' },
   });
   assert.match(html, /Neighborhood Sale/);
   assert.match(html, /The organizer has chosen to share only a general location\./);
   assert.match(html, /href="\/events\/event-1\/edit"/);
-  assert.deepEqual(documentReads, ['yardSaleEvents/event-1']);
+  assert.match(html, /Delete Event/);
+  assert.doesNotMatch(html, /99 Private Street|88 Inline Street/);
+  assert.deepEqual(documentReads, ['publicYardSaleEvents/event-1', 'yardSaleEvents/event-1']);
 });
 
-test('public event read failures remain distinct from denied address reads', async () => {
+test('an owner can manage an unprojected sale without displaying inline or unpublished exact addresses', async () => {
+  const { html, documentReads } = await loadEventDetail({ projection: null, user: { uid: 'owner' } });
+  assert.match(html, /Legacy owner sale/);
+  assert.match(html, /Manage the exact address in Edit Event/);
+  assert.match(html, /href="\/events\/event-1\/edit"/);
+  assert.match(html, /Delete Event/);
+  assert.doesNotMatch(html, /88 Inline Street|12 Main Street|Get directions/);
+  assert.deepEqual(documentReads, ['publicYardSaleEvents/event-1', 'yardSaleEvents/event-1']);
+});
+
+test('a signed-in visitor still sees consent-gated public detail when source access is denied', async () => {
+  const { html, documentReads } = await loadEventDetail({ user: { uid: 'visitor' } });
+  assert.match(html, /Neighborhood Sale/);
+  assert.match(html, /12 Main Street/);
+  assert.doesNotMatch(html, /Edit Event|Delete Event/);
+  assert.deepEqual(documentReads, ['publicYardSaleEvents/event-1', 'yardSaleEvents/event-1', 'eventPrivate/event-1']);
+});
+
+test('anonymous detail never falls back to source or private reads for a missing or malformed projection', async () => {
+  for (const projection of [null, { schemaVersion: 2 }]) {
+    const { html, documentReads } = await loadEventDetail({ projection });
+    assert.match(html, /Sale not found/);
+    assert.doesNotMatch(html, /Legacy owner sale|99 Private Street|88 Inline Street/);
+    assert.deepEqual(documentReads, ['publicYardSaleEvents/event-1']);
+  }
+});
+
+test('public event read failures remain distinct from unavailable address reads', async () => {
   const { html, documentReads } = await loadEventDetail({
     publicError: new Error('Public event read failed'),
   });
-  assert.match(html, /Public event read failed/);
-  assert.deepEqual(documentReads, ['yardSaleEvents/event-1']);
+  assert.match(html, /Failed to load sale/);
+  assert.deepEqual(documentReads, ['publicYardSaleEvents/event-1']);
+  const fallback = await loadEventDetail({ privateError: new Error('Unavailable') });
+  assert.match(fallback.html, /Neighborhood Sale/);
+  assert.doesNotMatch(fallback.html, /Get directions/);
 });

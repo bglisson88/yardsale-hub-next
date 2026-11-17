@@ -47,7 +47,14 @@ function createHookHarness(pages) {
       getDocs: async () => pages[currentPage++],
     },
     '@/lib/firebase': { db: {} },
+    '@/lib/public-event': ts.transpileModule(
+      fs.readFileSync(path.join(__dirname, '..', 'src/lib/public-event.ts'), 'utf8'),
+      { compilerOptions: { module: ts.ModuleKind.CommonJS } },
+    ).outputText,
   };
+  const parser = { exports: {} };
+  vm.runInNewContext(mocks['@/lib/public-event'], { exports: parser.exports, Date });
+  mocks['@/lib/public-event'] = parser.exports;
   vm.runInNewContext(code, {
     module: hookModule, exports: hookModule.exports,
     require: name => mocks[name] ?? require(name),

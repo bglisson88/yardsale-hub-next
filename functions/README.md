@@ -191,13 +191,14 @@ source is supplied.
 
 ### Public event projection
 
-Anonymous browse clients read `publicYardSaleEvents`, not the
+Public browse and detail clients read `publicYardSaleEvents`, not the
 owner-managed `yardSaleEvents` collection. The projection contains only schema
 version `1`, title, description, canonical general location and ID, visibility, event dates,
 photo URL, and item count. It never contains an organizer ID, address,
 coordinates, event version, or unrecognized source fields; Rules deny all
-client writes. Source listing is owner-scoped, while valid individual event
-gets and owner editing remain available. Rules strictly validate individual
+client writes. Source listing and individual source gets are owner-only.
+Owners can still open and edit unprojected events. Older clients that read
+source events directly cannot load public details under these Rules. Rules strictly validate individual
 projection gets, but the broad anonymous list grant cannot validate or redact
 each returned document without breaking the browse query. Every list result is
 returned in full. List safety relies on the trusted Functions writer using the

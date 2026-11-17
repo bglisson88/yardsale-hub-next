@@ -266,14 +266,16 @@ async function eventDetail(deleteResult = null, deleteError = null) {
       useParams: () => ({ id: 'event1' }),
       useRouter: () => ({ push: path => pushes.push(path) }),
     },
+    'firebase/auth': { onAuthStateChanged: (auth, callback) => callback(auth.currentUser) },
     'firebase/firestore': {
       doc: (_, collection, id) => ({ collection, id }),
-      getDoc: async () => ({ exists: () => true, id: 'event1', data: () => eventData }),
+      getDocFromServer: async ({ collection }) => collection === 'yardSaleEvents'
+        ? { data: () => eventData }
+        : { exists: () => false },
     },
     'lucide-react': { Calendar: Icon, MapPin: Icon, Pencil: Icon, Users: Icon },
-    '@/lib/firebase': { db: {} },
-    '@/hooks': { useAuthContext() {} },
-    '@/store': { useAuthStore: () => ({ user: { id: 'owner' } }) },
+    '@/lib/firebase': { auth: { currentUser: { uid: 'owner' } }, db: {} },
+    '@/lib/public-event': load('src/lib/public-event.ts', {}),
     '@/components': { LoadingSpinner: Icon },
     '@/lib/delete-event': {
       deleteOwnedEvent: async () => {
@@ -302,7 +304,10 @@ async function eventDetail(deleteResult = null, deleteError = null) {
     }
   }
   render();
-  effects.splice(0).forEach(effect => effect());
+  effects[0]();
+  effects.length = 0;
+  render();
+  effects[1]();
   await new Promise(resolve => setImmediate(resolve));
   render();
   return {

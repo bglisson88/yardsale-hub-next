@@ -70,8 +70,8 @@ publicly listed events.
 
 ## Public event projection
 
-Anonymous browsing reads `publicYardSaleEvents`; anonymous listing of the
-owner-managed `yardSaleEvents` source is denied. Owners retain source document
+Public browsing and direct event links read `publicYardSaleEvents`; nonowners
+cannot get or list the owner-managed `yardSaleEvents` source. Owners retain source document
 gets, filtered owner listings, and existing editing/deletion flows. Clients
 cannot create, update, or delete projection documents.
 
@@ -114,7 +114,10 @@ Functions do not automatically backfill existing source documents. Any
 backfill requires a separately approved, privacy-reviewed plan after an
 authorized data audit; do not assume hidden Console collections are empty.
 Canonical-ineligible legacy events remain owner-manageable but will not appear
-in public browse until reviewed and corrected.
+in public browse or resolve from public links until reviewed and corrected.
+Older detail clients that read `yardSaleEvents` directly will no longer work
+for public visitors; coordinate the Rules and application rollout and verify
+projection availability before switching public traffic.
 
 ## Required staging verification
 
@@ -180,8 +183,8 @@ in public browse until reviewed and corrected.
       Test malformed, unapproved, inactive, and mismatched locations on create
       and update; confirm removing the alias index rejects legacy writes but
       not canonical writes.
-- [ ] Verify public event browsing reads only the projection, malformed or
-      legacy source events do not appear in browse, and owners can still list,
+- [ ] Verify public event browsing and detail read only the projection, malformed or
+      legacy source events are unavailable to public visitors, and owners can still list,
       read, edit, and delete their own source events.
 - [ ] Verify general-event create/edit, including optional owner-only private
       addresses from the deployed `9ca33e0` payload.
@@ -227,7 +230,7 @@ Do not treat staging verification as production authorization.
 2. Separately authorize, provision, and review the catalog and finite alias
    index, then deploy the compatible Functions. Verify approved legacy options.
 3. Publish rules derived from the verified live production rules. Deny public
-   source listing, permit anonymous list access only to the trusted-writer
+   source gets and listing, permit anonymous list access only to the trusted-writer
    projection collection (with schema validation on individual gets), preserve
    owner-scoped source listing, and deny client projection writes. Direct exact
    writes from the old website must be denied. Legacy general writes with

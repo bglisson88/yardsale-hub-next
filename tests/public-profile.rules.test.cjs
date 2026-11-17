@@ -210,8 +210,10 @@ test('firebase.json protects public profiles and username collections', async ()
     }));
 
     const eventRef = doc(alice, 'yardSaleEvents', 'sale');
+    assert.equal((await assertSucceeds(getDoc(eventRef))).data().title, 'Community sale');
+    await assertFails(getDoc(doc(anonymous, 'yardSaleEvents', 'sale')));
     assert.equal((await assertSucceeds(getDoc(
-      doc(anonymous, 'yardSaleEvents', 'sale'),
+      doc(anonymous, 'publicYardSaleEvents', 'sale'),
     ))).data().title, 'Community sale');
     await assertFails(getDocs(collection(anonymous, 'yardSaleEvents')));
     const publicEvents = await assertSucceeds(getDocs(collection(

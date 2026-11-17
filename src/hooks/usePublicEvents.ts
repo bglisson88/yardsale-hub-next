@@ -6,19 +6,10 @@ import {
   type QueryDocumentSnapshot,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { parsePublicEvent } from '@/lib/public-event';
 import type { PublicYardSaleEvent } from '@/types';
 
 const MAX_PUBLIC_EVENTS = 50;
-
-function toDate(value: unknown): Date | null {
-  if (value instanceof Date) return value;
-  if (value && typeof value === 'object' && 'toDate' in value &&
-      typeof value.toDate === 'function') {
-    const date = value.toDate();
-    return date instanceof Date && !Number.isNaN(date.getTime()) ? date : null;
-  }
-  return null;
-}
 
 export function usePublicEvents() {
   const [events, setEvents] = useState<PublicYardSaleEvent[]>([]);
@@ -40,7 +31,7 @@ export function usePublicEvents() {
           limit(MAX_PUBLIC_EVENTS),
         ));
         if (!active) return;
-        const parsed = snapshot.docs.flatMap(parsePublicEvent);
+        const parsed = snapshot.docs.map(parsePublicEvent).filter(event => event !== null);
         lastDocument.current = snapshot.docs[snapshot.docs.length - 1] ?? null;
         setEvents(parsed);
         setHasMore(snapshot.docs.length === MAX_PUBLIC_EVENTS);
@@ -71,7 +62,7 @@ export function usePublicEvents() {
         startAfter(cursor),
         limit(MAX_PUBLIC_EVENTS),
       ));
-      const nextEvents = snapshot.docs.flatMap(parsePublicEvent);
+      const nextEvents = snapshot.docs.map(parsePublicEvent).filter(event => event !== null);
       lastDocument.current = snapshot.docs[snapshot.docs.length - 1] ?? cursor;
       setEvents(current => [...current, ...nextEvents]);
       setHasMore(snapshot.docs.length === MAX_PUBLIC_EVENTS);
@@ -85,44 +76,4 @@ export function usePublicEvents() {
   }
 
   return { events, loading, loadingMore, hasMore, error, loadMore };
-}
-
-function parsePublicEvent(document: {
-  id: string;
-  data(): Record<string, unknown>;
-}): PublicYardSaleEvent[] {
-  const data = document.data();
-  const startDate = toDate(data.startDate);
-  const endDate = toDate(data.endDate);
-  const createdAt = toDate(data.createdAt);
-  const updatedAt = toDate(data.updatedAt);
-  if (
-    data.schemaVersion !== 1 ||
-    typeof data.title !== 'string' ||
-    typeof data.description !== 'string' ||
-    typeof data.location !== 'string' ||
-    typeof data.locationId !== 'string' ||
-    !['general', 'exact'].includes(String(data.locationVisibility)) ||
-    !startDate ||
-    !endDate ||
-    !createdAt ||
-    !updatedAt ||
-    !(data.photoURL === null || typeof data.photoURL === 'string') ||
-    !Number.isSafeInteger(data.itemCount) ||
-    (data.itemCount as number) < 0
-  ) return [];
-  return [{
-    id: document.id,
-    title: data.title,
-    description: data.description,
-    location: data.location,
-    locationId: data.locationId,
-    locationVisibility: data.locationVisibility as 'general' | 'exact',
-    startDate,
-    endDate,
-    photoURL: data.photoURL,
-    createdAt,
-    updatedAt,
-    itemCount: data.itemCount as number,
-  }];
 }

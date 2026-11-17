@@ -530,22 +530,41 @@ async function seed(path, data) {
   });
 }
 
-test('general event creation preserves public document reads and owner-only source listing', async () => {
+test('general event creation preserves owner source reads and denies public source reads', async () => {
   const alice = database('alice');
   const eventRef = doc(collection(alice, 'yardSaleEvents'));
   await assertSucceeds(setDoc(eventRef, publicEvent('alice', { locationId: 'nederland' })));
-  const result = await getDoc(doc(anonymousDatabase(), 'yardSaleEvents', eventRef.id));
+  const result = await assertSucceeds(getDoc(eventRef));
   assert.equal(result.data().locationVisibility, 'general');
   assert.equal('address' in result.data(), false);
   assert.equal('latitude' in result.data(), false);
   assert.equal('longitude' in result.data(), false);
 
+  await assertFails(getDoc(doc(anonymousDatabase(), 'yardSaleEvents', eventRef.id)));
+  await assertFails(getDoc(doc(database('bob'), 'yardSaleEvents', eventRef.id)));
   await assertFails(getDocs(collection(anonymousDatabase(), 'yardSaleEvents')));
   const ownerEvents = await assertSucceeds(getDocs(query(
     collection(alice, 'yardSaleEvents'),
     where('userId', '==', 'alice'),
   )));
   assert.deepEqual(ownerEvents.docs.map(event => event.id), [eventRef.id]);
+});
+
+test('legacy street-address-shaped locations are owner-only while sanitized public detail remains readable', async () => {
+  await seed('yardSaleEvents/legacy-location', publicEvent('alice', { location: '12 Main Street' }));
+  await seed('yardSaleEvents/safe-location', publicEvent('alice', { locationId: 'nederland' }));
+  await seed('publicYardSaleEvents/safe-location', publicEventProjection());
+
+  const anonymous = anonymousDatabase();
+  await assertFails(getDoc(doc(anonymous, 'yardSaleEvents', 'legacy-location')));
+  await assertFails(getDoc(doc(database('bob'), 'yardSaleEvents', 'legacy-location')));
+  await assertFails(getDoc(doc(anonymous, 'publicYardSaleEvents', 'legacy-location')));
+  const owner = await assertSucceeds(getDoc(doc(database('alice'), 'yardSaleEvents', 'legacy-location')));
+  assert.equal(owner.data().location, '12 Main Street');
+  const detail = await assertSucceeds(getDoc(doc(anonymous, 'publicYardSaleEvents', 'safe-location')));
+  assert.equal(detail.data().location, publicEventProjection().location);
+  assert.equal(Object.hasOwn(detail.data(), 'address'), false);
+  assert.equal(Object.hasOwn(detail.data(), 'userId'), false);
 });
 
 test('anonymous projection list trusts server-written documents while get validates schema and client writes fail', async () => {
@@ -601,8 +620,8 @@ test('deployed legacy general-event create keeps an optional address private', a
   batch.set(privateRef, { userId: 'alice', address: '12 Main Street' });
   await assertSucceeds(batch.commit());
 
-  assert.equal((await getDoc(doc(anonymousDatabase(), 'yardSaleEvents', eventRef.id)))
-    .data().address, undefined);
+  assert.equal((await assertSucceeds(getDoc(eventRef))).data().address, undefined);
+  await assertFails(getDoc(doc(anonymousDatabase(), 'yardSaleEvents', eventRef.id)));
   assert.equal((await getDoc(privateRef)).data().address, '12 Main Street');
   await assertFails(getDoc(doc(database('bob'), 'eventPrivate', eventRef.id)));
   await assertFails(getDoc(doc(anonymousDatabase(), 'eventPrivate', eventRef.id)));
@@ -633,13 +652,12 @@ test('deployed legacy general-event edit payload remains valid without eventVers
   batch.set(privateRef, { userId: 'alice', address: '12 Main Street' });
   await assertSucceeds(batch.commit());
 
-  const publicEventSnapshot = await assertSucceeds(
-    getDoc(doc(anonymousDatabase(), 'yardSaleEvents', 'legacy-general')),
-  );
-  assert.equal(publicEventSnapshot.data().title, 'Updated legacy sale');
+  const ownerEventSnapshot = await assertSucceeds(getDoc(eventRef));
+  assert.equal(ownerEventSnapshot.data().title, 'Updated legacy sale');
   for (const field of ['address', 'latitude', 'longitude', 'eventVersion']) {
-    assert.equal(Object.hasOwn(publicEventSnapshot.data(), field), false);
+    assert.equal(Object.hasOwn(ownerEventSnapshot.data(), field), false);
   }
+  await assertFails(getDoc(doc(anonymousDatabase(), 'yardSaleEvents', 'legacy-general')));
   assert.equal((await assertSucceeds(getDoc(privateRef))).data().address, '12 Main Street');
   await assertFails(getDoc(doc(anonymousDatabase(), 'eventPrivate', 'legacy-general')));
 
@@ -927,14 +945,22 @@ test('clients cannot create exact events or set public address fields', async ()
 test('public exact-address access requires a matching server consent revision', async () => {
   await seed('yardSaleEvents/revision-match', publicEvent('alice', {
     locationVisibility: 'exact',
+    locationId: 'nederland',
     eventVersion: 1,
+  }));
+  await seed('publicYardSaleEvents/revision-match', publicEventProjection({
+    locationVisibility: 'exact',
   }));
   await seed('eventPrivate/revision-match', {
     userId: 'alice',
     address: '12 Main Street',
     addressRevision: 'revision-1',
   });
-  const privateRef = doc(anonymousDatabase(), 'eventPrivate', 'revision-match');
+  const anonymous = anonymousDatabase();
+  const privateRef = doc(anonymous, 'eventPrivate', 'revision-match');
+  const detailRef = doc(anonymous, 'publicYardSaleEvents', 'revision-match');
+  await assertFails(getDoc(doc(anonymous, 'yardSaleEvents', 'revision-match')));
+  assert.equal((await assertSucceeds(getDoc(detailRef))).data().locationVisibility, 'exact');
   await assertFails(getDoc(privateRef));
   await seed('eventAddressConsent/revision-match', {
     organizerUid: 'alice',
@@ -953,6 +979,7 @@ test('public exact-address access requires a matching server consent revision', 
     operationId: 'server-operation-2',
   });
   await assertFails(getDoc(privateRef));
+  assert.equal((await assertSucceeds(getDoc(detailRef))).data().address, undefined);
 
   const alice = database('alice');
   await assertFails(setDoc(

@@ -315,9 +315,7 @@ service cloud.firestore {
     }
 
     match /yardSaleEvents/{eventId} {
-      allow get: if validEvent(resource.data)
-        || owns(resource.data.userId);
-      allow list: if owns(resource.data.userId);
+      allow get, list: if owns(resource.data.userId);
 
       allow create: if signedIn()
         && validEvent(request.resource.data)
