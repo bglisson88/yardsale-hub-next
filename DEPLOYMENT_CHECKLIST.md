@@ -134,6 +134,30 @@ projection availability before switching public traffic.
     --project yardsale-hub-staging \
     --confirm-read-only-staging-audit
   ```
+- [ ] Separately provision and verify the dedicated staging projection-audit
+      identity with read-only Firestore permissions only. Do not use the
+      Functions runtime identity for the audit.
+- [ ] Run the projection coverage audit and dry-run plan only after the staging
+      project, environment, and impersonated identity are verified:
+
+  ```bash
+  npm --prefix functions run audit:projections -- \
+    --project yardsale-hub-staging --plan
+  ```
+
+- [ ] Treat structurally eligible as distinct from approved for publication.
+      The tool reports zero approved events because it has no
+      reviewer-attested content manifest; all source records require manual
+      review. Review source free text and catalog provenance separately.
+- [ ] Treat the report as a best-effort, non-atomic scan: `scanCompleted`
+      confirms the reads completed, not that all collections reflect one
+      snapshot. Run during a quiet period and repeat before making decisions.
+- [ ] Treat `projectionsWithSensitiveFieldNames` as a field-name check only;
+      it does not inspect address-shaped text in otherwise allowed public fields.
+- [ ] Resolve missing, stale, malformed, sensitive, orphaned, and invalid
+      catalog counts before applying restrictive Rules. The audit and plan are
+      read-only; cleanup, approved backfill, and stale reconciliation require
+      separate authorization and are not implemented by this tool.
 - [ ] Treat catalog and alias matches as review-unverified. The audit cannot
       establish that an entry is independently reviewed or genuinely broad,
       and no Firestore review flag proves either. A missing or malformed

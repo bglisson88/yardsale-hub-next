@@ -230,6 +230,49 @@ is a separate approval and is never performed by these triggers or deployment
 steps. Production Rules must be derived from the verified active production
 Rules source, not copied from this staging-only file.
 
+### Read-only projection coverage audit
+
+`npm --prefix functions run audit:projections -- --project yardsale-hub-staging`
+performs a read-only aggregate audit; add `--plan` to label the output as a
+dry-run plan. The command accepts only the explicit staging project, loads the
+tracked staging Functions settings, rejects emulator or conflicting project
+configuration, and requires impersonated credentials for the dedicated
+`yardsale-hub-staging-audit` service account. Provision that identity separately
+with read-only Firestore permissions only; do not use the Functions runtime
+identity, which has write permissions. Set
+`YSH_PROJECTION_AUDIT_SERVICE_ACCOUNT` to the reviewed audit identity and
+`GOOGLE_APPLICATION_CREDENTIALS` to an impersonated ADC configuration; the
+tool rejects key-based service-account credentials.
+
+The audit reuses the projection builder and catalog validator. It reports
+structural eligibility separately from publication approval; publication
+approval is always zero because this repository has no reviewer-attested
+content manifest. It paginates the full catalog, source, and projection
+collections and emits aggregate counts only. `scanCompleted` means every
+requested read completed; `scanConsistency` is explicitly best-effort and
+non-atomic because Firestore does not provide a shared snapshot across these
+pages and collections. Concurrent changes are not detected, so run the audit
+when data is quiescent and repeat it before acting on counts. The audit store
+exposes only document/query reads, and no cleanup, backfill, or
+stale-reconciliation write command is implemented.
+
+Treat structurally eligible records as requiring manual review. Catalog field
+shape does not prove that labels are broad locations, and source title,
+description, and location text can still contain sensitive information.
+`projectionsWithSensitiveFieldNames` only detects suspicious field names; it
+does not inspect text values for addresses or other sensitive content. All
+source events still require manual content review. Malformed, field-name
+flagged, and orphan projections are counted for proposed cleanup; do not assume
+that rebuilding a projection makes its content safe.
+
+Before any staging validation, separately approve the read-only identity and
+access, verify the target project and Vercel Preview configuration, and review
+the aggregate-only audit and plan. After separately approved catalog
+provisioning and content review, a future change may add distinct, explicitly
+authorized commands for cleaning unsafe projections, backfilling approved
+missing projections, and reconciling approved stale projections. Those future
+commands must not change source events, consent records, or Firestore Rules.
+
 ### Read-only event-data audit
 
 `scripts/audit-production-events.cjs` accepts only `yardsale-hub-93c49` with
