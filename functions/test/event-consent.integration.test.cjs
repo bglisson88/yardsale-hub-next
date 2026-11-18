@@ -11,7 +11,7 @@ const { initializeApp, deleteApp } = require('firebase/app');
 const { connectAuthEmulator, createUserWithEmailAndPassword, getAuth } = require('firebase/auth');
 const { connectFunctionsEmulator, getFunctions, httpsCallable } = require('firebase/functions');
 const {
-  collection, connectFirestoreEmulator, doc, documentId, getDocFromServer,
+  Timestamp, collection, connectFirestoreEmulator, doc, documentId, getDocFromServer,
   getFirestore, onSnapshot, query, setDoc, where,
 } = require('firebase/firestore');
 
@@ -190,7 +190,10 @@ test('real callables revoke exact-address access and the trigger refreshes and d
   await assert.rejects(outsider.save(general), { code: 'functions/permission-denied' });
   await assert.rejects(outsider.remove(deletion), { code: 'functions/permission-denied' });
   await assert.rejects(anonymous.save(general), { code: 'functions/unauthenticated' });
-  await assert.rejects(setDoc(doc(outsider.db, 'eventAddressConsent', eventId), grant), permissionDenied);
+  await assert.rejects(setDoc(doc(outsider.db, 'eventAddressConsent', eventId), {
+    ...grant,
+    grantedAt: new Timestamp(grant.grantedAt.seconds, grant.grantedAt.nanoseconds),
+  }), permissionDenied);
   await assert.rejects(getDocFromServer(doc(outsider.db, 'eventAddressConsent', eventId)), permissionDenied);
   assert.equal((await readAddress(anonymous)).get('address'), exact.address);
 
