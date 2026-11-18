@@ -47,15 +47,25 @@ switch (mode) {
     ];
     env = { ...process.env, GCLOUD_PROJECT: project };
     break;
-  case 'integration-child':
-    args = [
+  case 'integration-child': {
+    env = { ...process.env, FUNCTIONS_EMULATOR_HOST: '127.0.0.1:5001' };
+    const status = run([
       '--test',
       '--test-concurrency=1',
       'functions/test/public-profile.integration.test.cjs',
       'functions/test/public-event-projection-audit.integration.test.cjs',
+    ], root, env);
+    if (status !== 0) {
+      process.exitCode = status;
+      break;
+    }
+    // This test loads the production candidate into the disposable Firestore emulator.
+    args = [
+      '--test',
+      'functions/test/event-consent.integration.test.cjs',
     ];
-    env = { ...process.env, FUNCTIONS_EMULATOR_HOST: '127.0.0.1:5001' };
     break;
+  }
   default:
     console.error('Expected a Functions test mode: smoke or integration.');
     process.exitCode = 1;

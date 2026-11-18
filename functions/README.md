@@ -338,9 +338,14 @@ record identifiers for remediation. `test/audit-production-events.test.cjs`
 exercises the audit and projection-validation logic with synthetic data only;
 it makes no Firebase requests. `test/public-event-projection.test.cjs` also
 checks the offline reconciliation result after a simulated exact-consent
-revocation. There is not yet a Firestore Emulator test that invokes the real
-consent callable and verifies the trigger-updated projection together. That
-end-to-end behavior must be verified in an emulator before release. See
+revocation. `test/event-consent.integration.test.cjs` runs last in
+`npm run test:functions:integration` against the local Auth, Functions, and
+Firestore emulators for `demo-yardsale-hub`. It loads the production-candidate
+Rules into the disposable Firestore emulator, then exercises the real
+callables and waits for server-confirmed projection creation, refresh, and
+removal. It verifies that revocation blocks new address reads even before
+the projection catches up; it cannot recall an address already disclosed or
+cached. Production deployment configuration is unchanged. See
 `DEPLOYMENT_CHECKLIST.md` for migration, review, and cutover safeguards.
 
 Run the staging audit before any staging deployment only after separate

@@ -20,7 +20,7 @@ production action requires separate authorization.
 - [ ] Verify the public event projection Functions and Rules tests, including
       malformed-source omission, stale-trigger reconciliation, and owner-only
       source listing.
-- [ ] Add and run a Firestore Emulator integration test that invokes the real
+- [ ] Pass the emulator integration test (`npm run test:functions:integration`) that invokes the real
       consent-revocation callable, observes the projection trigger, and
       verifies the resulting public projection and private-address access.
 - [ ] Verify the production runtime configuration is limited to
