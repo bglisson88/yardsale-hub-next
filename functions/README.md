@@ -306,14 +306,24 @@ account credentials. It does not access staging or live Firebase.
 `--confirm-read-only-staging-audit`. It rejects unknown or mismatched project
 IDs, conflicting or duplicate project/confirmation arguments, emulator
 configuration, and a conflicting `GCLOUD_PROJECT`. It reports aggregate
-counts for event/private/consent consistency and public sensitive fields; it
-does not write data or print event addresses, coordinates, event IDs, or
-organizer IDs. Catalog and alias matches are review-unverified: neither a match
-nor a Firestore flag proves independent review. The audit does not verify a
-reviewer-authenticated inventory. Suspicious patterns are review candidates,
-not a complete detector. Titles, descriptions, other strings, and unrecognized
-fields may contain sensitive data. Structural policy checks do not prove
-consent provenance.
+counts for event/private/consent consistency and scans every document in
+`publicYardSaleEvents`. Projection counts cover schema failures, unexpected
+fields, nested sensitive field names, address-like text, orphan documents,
+sources without projections, projection/source mismatches, and exact
+projections with stale consent state. Consent-marker counts also identify
+orphaned or structurally stale markers. The audit is read-only and does not
+print document IDs, addresses, coordinates, or organizer IDs. It does not
+repair, delete, or backfill documents.
+
+The projection scan validates the explicit projection allowlist and compares
+projection values with the current source, including Firestore timestamp
+precision. Address detection uses conservative street-address and coordinate
+patterns across string values; it is a review signal, not complete detection.
+Titles, descriptions, locations, and even a valid field allowlist can contain
+private text. Catalog and alias matches are review-unverified: neither a
+match nor a Firestore flag proves independent review. The audit does not
+verify a reviewer-authenticated inventory. Structural policy checks do not
+prove consent provenance.
 
 Anonymous-read assessments conservatively model the tracked staging Rules:
 potentially readable includes indeterminate outcomes, such as Firestore
@@ -324,8 +334,14 @@ independently verify the published Rules before relying on these counts.
 
 The collection scans and joins are not a consistent snapshot during concurrent
 writes. Aggregates can be identifying when counts are small and do not provide
-record identifiers for remediation. See `DEPLOYMENT_CHECKLIST.md` for review
-and follow-up safeguards.
+record identifiers for remediation. `test/audit-production-events.test.cjs`
+exercises the audit and projection-validation logic with synthetic data only;
+it makes no Firebase requests. `test/public-event-projection.test.cjs` also
+checks the offline reconciliation result after a simulated exact-consent
+revocation. There is not yet a Firestore Emulator test that invokes the real
+consent callable and verifies the trigger-updated projection together. That
+end-to-end behavior must be verified in an emulator before release. See
+`DEPLOYMENT_CHECKLIST.md` for migration, review, and cutover safeguards.
 
 Run the staging audit before any staging deployment only after separate
 authorization. Run the production audit only after separate authorization and

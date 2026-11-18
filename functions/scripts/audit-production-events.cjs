@@ -21,6 +21,14 @@ const EVENT_FIELDS = [
 const MARKER_FIELDS = [
   'organizerUid', 'consentVersion', 'addressRevision', 'grantedAt', 'operationId',
 ];
+const PUBLIC_PROJECTION_FIELDS = [
+  'schemaVersion', 'title', 'description', 'location', 'locationId',
+  'locationVisibility', 'startDate', 'endDate', 'photoURL', 'createdAt',
+  'updatedAt', 'itemCount',
+];
+const PUBLIC_PROJECTION_SOURCE_FIELDS = PUBLIC_PROJECTION_FIELDS.filter(
+  field => field !== 'schemaVersion',
+);
 const CATALOG_FIELDS = [
   'kind', 'displayName', 'active', 'approvedAliases', 'countryCode', 'regionCode',
 ];
@@ -161,6 +169,47 @@ function suspiciousLocation(value) {
     /(?:^|[^\d])[-+]?\d{1,2}\.\d+\s*,\s*[-+]?\d{1,3}\.\d+(?:$|[^\d])/.test(value);
 }
 
+function containsAddressLikeText(value, seen = new Set()) {
+  if (typeof value === 'string') return suspiciousLocation(value);
+  if (!value || typeof value !== 'object' || seen.has(value)) return false;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    return value.some(item => containsAddressLikeText(item, seen));
+  }
+  return Object.values(value).some(item => containsAddressLikeText(item, seen));
+}
+
+function validPublicProjection(data) {
+  return hasRequiredAndAllowedFields(data, PUBLIC_PROJECTION_FIELDS) &&
+    data.schemaVersion === 1 &&
+    typeof data.title === 'string' && data.title.length > 0 && data.title.length <= 120 &&
+    typeof data.description === 'string' && data.description.length <= 5000 &&
+    typeof data.location === 'string' && data.location.length > 0 &&
+    data.location.length <= 200 && data.location.trim() === data.location &&
+    typeof data.locationId === 'string' && LOCATION_ID.test(data.locationId) &&
+    ['general', 'exact'].includes(data.locationVisibility) &&
+    data.startDate instanceof Timestamp && data.endDate instanceof Timestamp &&
+    (data.endDate.seconds > data.startDate.seconds ||
+      (data.endDate.seconds === data.startDate.seconds &&
+        data.endDate.nanoseconds > data.startDate.nanoseconds)) &&
+    (data.photoURL === null ||
+      (typeof data.photoURL === 'string' && data.photoURL.length <= 2048)) &&
+    data.createdAt instanceof Timestamp && data.updatedAt instanceof Timestamp &&
+    Number.isSafeInteger(data.itemCount) && data.itemCount >= 0;
+}
+
+function publicProjectionMatchesSource(projection, event) {
+  return PUBLIC_PROJECTION_SOURCE_FIELDS.every(field => {
+    const projectionValue = projection[field];
+    const sourceValue = event[field];
+    if (projectionValue instanceof Timestamp && sourceValue instanceof Timestamp) {
+      return projectionValue.seconds === sourceValue.seconds &&
+        projectionValue.nanoseconds === sourceValue.nanoseconds;
+    }
+    return projectionValue === sourceValue;
+  });
+}
+
 function structurallyValidMarker(marker, event, privateEvent) {
   return hasRequiredAndAllowedFields(marker, MARKER_FIELDS) &&
     typeof event.userId === 'string' && event.userId.length > 0 &&
@@ -212,6 +261,7 @@ async function collectAuditCounts(db) {
   const events = new Map();
   const privateEvents = new Map();
   const consentMarkers = new Map();
+  const projectedEventIds = new Set();
   const counts = {
     eventDocuments: 0,
     generalEvents: 0,
@@ -234,6 +284,16 @@ async function collectAuditCounts(db) {
     consentOrganizerMismatches: 0,
     generalEventsWithConsentMarker: 0,
     publicEventsFailingPolicySchema: 0,
+    publicProjectionDocuments: 0,
+    publicProjectionDocumentsFailingSchema: 0,
+    publicProjectionDocumentsWithUnexpectedFields: 0,
+    publicProjectionDocumentsWithSensitiveLocationFields: 0,
+    publicProjectionDocumentsWithAddressLikeText: 0,
+    orphanPublicProjectionDocuments: 0,
+    sourceEventsWithoutPublicProjection: 0,
+    publicProjectionsStaleAgainstSource: 0,
+    publicProjectionsWithStaleConsentState: 0,
+    staleConsentMarkers: 0,
     catalogMatchedReviewUnverifiedLocations: 0,
     suspiciousPublicLocations: 0,
     malformedPublicLocations: 0,
@@ -263,6 +323,7 @@ async function collectAuditCounts(db) {
       location: data.location,
       locationIdPresent: Object.hasOwn(data, 'locationId'),
       locationId: data.locationId,
+      data,
       validSchema: validPublicEvent(data),
       maySatisfyReadRules: maySatisfyPublicEventReadRules(data),
     });
@@ -378,10 +439,64 @@ async function collectAuditCounts(db) {
     if (!events.has(eventId)) counts.orphanPrivateDocuments += 1;
   }
   for (const eventId of consentMarkers.keys()) {
-    if (!events.has(eventId)) counts.orphanConsentMarkers += 1;
-    else if (!events.get(eventId).userId ||
-        events.get(eventId).userId !== consentMarkers.get(eventId).organizerUid) {
+    const event = events.get(eventId);
+    const privateEvent = privateEvents.get(eventId);
+    const marker = consentMarkers.get(eventId);
+    if (!event) counts.orphanConsentMarkers += 1;
+    if (!event || event.locationVisibility !== 'exact' ||
+        !structurallyValidMarker(marker, event, privateEvent)) {
+      counts.staleConsentMarkers += 1;
+    }
+    if (event && (!event.userId || event.userId !== marker.organizerUid)) {
       counts.consentOrganizerMismatches += 1;
+    }
+  }
+
+  await readCollection(db, 'publicYardSaleEvents', document => {
+    const projection = document.data();
+    const { id: eventId } = document;
+    projectedEventIds.add(eventId);
+    counts.publicProjectionDocuments += 1;
+    if (!validPublicProjection(projection)) {
+      counts.publicProjectionDocumentsFailingSchema += 1;
+    }
+    if (Object.keys(projection).some(field => !PUBLIC_PROJECTION_FIELDS.includes(field))) {
+      counts.publicProjectionDocumentsWithUnexpectedFields += 1;
+    }
+    if (containsSensitiveLocation(projection)) {
+      counts.publicProjectionDocumentsWithSensitiveLocationFields += 1;
+    }
+    if (containsAddressLikeText(projection)) {
+      counts.publicProjectionDocumentsWithAddressLikeText += 1;
+    }
+
+    const event = events.get(eventId);
+    if (!event) {
+      counts.orphanPublicProjectionDocuments += 1;
+      return;
+    }
+    if (!publicProjectionMatchesSource(projection, event.data)) {
+      counts.publicProjectionsStaleAgainstSource += 1;
+    }
+    const exactProjectionStateIsCurrent =
+      projection.locationVisibility === 'exact' &&
+      event.locationVisibility === 'exact' &&
+      structurallyValidMarker(
+        consentMarkers.get(eventId),
+        event,
+        privateEvents.get(eventId),
+      );
+    if (
+      (projection.locationVisibility === 'exact' ||
+        event.locationVisibility === 'exact') &&
+      !exactProjectionStateIsCurrent
+    ) {
+      counts.publicProjectionsWithStaleConsentState += 1;
+    }
+  });
+  for (const eventId of events.keys()) {
+    if (!projectedEventIds.has(eventId)) {
+      counts.sourceEventsWithoutPublicProjection += 1;
     }
   }
 

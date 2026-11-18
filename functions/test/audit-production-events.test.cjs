@@ -105,7 +105,8 @@ function readOnlyFirestore(fixtures) {
     collection(name) {
       assert.ok(
         ['yardSaleEvents', 'eventPrivate', 'eventAddressConsent',
-          'generalLocations', 'generalLocationAliases'].includes(name),
+          'publicYardSaleEvents', 'generalLocations',
+          'generalLocationAliases'].includes(name),
         `unexpected collection read: ${name}`,
       );
       collectionsRead.push(name);
@@ -189,7 +190,9 @@ test('audit performs reads only and formats aggregate counts without private val
   assert.equal(counts.privateDocumentsWithAddress, 1);
   assert.deepEqual(
     new Set(db.collectionsRead),
-    new Set(['yardSaleEvents', 'eventPrivate', 'eventAddressConsent']),
+    new Set([
+      'yardSaleEvents', 'publicYardSaleEvents', 'eventPrivate', 'eventAddressConsent',
+    ]),
   );
   for (const value of [...privateValues, '29.99', '-94.01']) {
     assert.equal(output.includes(value), false);
@@ -206,6 +209,17 @@ function event(overrides = {}) {
     locationId: 'city', locationVisibility: 'general',
     startDate: start, endDate: end, photoURL: null, createdAt: start,
     updatedAt: start, itemCount: 0, ...overrides,
+  };
+}
+function projection(source, overrides = {}) {
+  const {
+    title, description, location, locationId, locationVisibility,
+    startDate, endDate, photoURL, createdAt, updatedAt, itemCount,
+  } = source;
+  return {
+    schemaVersion: 1, title, description, location, locationId,
+    locationVisibility, startDate, endDate, photoURL, createdAt, updatedAt,
+    itemCount, ...overrides,
   };
 }
 function catalog(overrides = {}) {
@@ -227,13 +241,16 @@ for (const size of [0, 400, 401, 825]) {
   test(`paginates ${size} records in each event collection without losing joins`, async () => {
     const fixtures = {
       yardSaleEvents: [],
+      publicYardSaleEvents: [],
       eventPrivate: [],
       eventAddressConsent: [],
       generalLocations: [{ id: 'city', data: catalog() }],
     };
     for (let i = 0; i < size; i++) {
       const id = `event-${String(i).padStart(4, '0')}`;
-      fixtures.yardSaleEvents.push({ id, data: event({ locationVisibility: 'exact' }) });
+      const source = event({ locationVisibility: 'exact' });
+      fixtures.yardSaleEvents.push({ id, data: source });
+      fixtures.publicYardSaleEvents.push({ id, data: projection(source) });
       fixtures.eventPrivate.push({ id, data: {
         userId: 'owner', address: 'PRIVATE_ADDRESS_SENTINEL', addressRevision: 'revision',
       } });
@@ -246,9 +263,14 @@ for (const size of [0, 400, 401, 825]) {
     const db = readOnlyFirestore(fixtures);
     const counts = await collectAuditCounts(db);
     assert.equal(counts.eventDocuments, size);
+    assert.equal(counts.publicProjectionDocuments, size);
     assert.equal(counts.privateDocuments, size);
     assert.equal(counts.consentMarkers, size);
     assert.equal(counts.catalogMatchedReviewUnverifiedLocations, size);
+    assert.equal(counts.publicProjectionDocumentsFailingSchema, 0);
+    assert.equal(counts.orphanPublicProjectionDocuments, 0);
+    assert.equal(counts.sourceEventsWithoutPublicProjection, 0);
+    assert.equal(counts.publicProjectionsStaleAgainstSource, 0);
     assert.equal(counts.orphanPrivateDocuments, 0);
     assert.equal(counts.orphanConsentMarkers, 0);
     assert.equal(counts.eventPrivateOwnerMismatches, size > 400 ? 1 : 0);
@@ -263,6 +285,8 @@ for (const size of [0, 400, 401, 825]) {
       assert.equal(db.pagesRead.filter(page => page.name === name).length,
         Math.floor(size / 400) + 1);
     }
+    assert.equal(db.pagesRead.filter(page => page.name === 'publicYardSaleEvents').length,
+      Math.floor(size / 400) + 1);
     assert.equal(db.documentReads.filter(read => read.name === 'generalLocations').length,
       size ? 1 : 0);
   });
@@ -292,6 +316,61 @@ test('joins missing and orphan records across page boundaries', async () => {
   assert.equal(counts.orphanConsentMarkers, 1);
   assert.equal(counts.exactEventsWithoutNonblankPrivateAddress, 1);
   assert.equal(counts.exactEventsDefinitelyNotAnonymousReadable, 2);
+});
+
+test('audits every public projection for schema, exposure, orphaning, and stale consent', async () => {
+  const safeSource = event();
+  const staleConsentSource = event({ locationVisibility: 'exact' });
+  const revokedSource = event();
+  const sourceWithoutProjection = event();
+  const db = readOnlyFirestore({
+    yardSaleEvents: [
+      { id: 'safe', data: safeSource },
+      { id: 'STALE_CONSENT_ID_SENTINEL', data: staleConsentSource },
+      { id: 'revoked', data: revokedSource },
+      { id: 'MISSING_PROJECTION_ID_SENTINEL', data: sourceWithoutProjection },
+    ],
+    publicYardSaleEvents: [
+      { id: 'safe', data: projection(safeSource) },
+      { id: 'STALE_CONSENT_ID_SENTINEL', data: projection(staleConsentSource) },
+      { id: 'revoked', data: projection(revokedSource, {
+        locationVisibility: 'exact',
+      }) },
+      { id: 'PRIVATE_EVENT_ID_SENTINEL', data: projection(event(), {
+        title: '12 Main Street',
+        address: 'PRIVATE_ADDRESS_SENTINEL',
+      }) },
+    ],
+    eventPrivate: [{
+      id: 'STALE_CONSENT_ID_SENTINEL',
+      data: { userId: 'owner', address: 'PRIVATE_ADDRESS_SENTINEL', addressRevision: 'current' },
+    }],
+    eventAddressConsent: [{
+      id: 'STALE_CONSENT_ID_SENTINEL',
+      data: marker({ addressRevision: 'stale' }),
+    }],
+    generalLocations: [{ id: 'city', data: catalog() }],
+  });
+
+  const counts = await collectAuditCounts(db);
+  assert.equal(counts.publicProjectionDocuments, 4);
+  assert.equal(counts.publicProjectionDocumentsFailingSchema, 1);
+  assert.equal(counts.publicProjectionDocumentsWithUnexpectedFields, 1);
+  assert.equal(counts.publicProjectionDocumentsWithSensitiveLocationFields, 1);
+  assert.equal(counts.publicProjectionDocumentsWithAddressLikeText, 1);
+  assert.equal(counts.orphanPublicProjectionDocuments, 1);
+  assert.equal(counts.sourceEventsWithoutPublicProjection, 1);
+  assert.equal(counts.publicProjectionsStaleAgainstSource, 1);
+  assert.equal(counts.publicProjectionsWithStaleConsentState, 2);
+  assert.equal(counts.staleConsentMarkers, 1);
+
+  const output = formatSummary(staging, counts);
+  for (const value of [
+    'PRIVATE_ADDRESS_SENTINEL', '12 Main Street', 'STALE_CONSENT_ID_SENTINEL',
+    'MISSING_PROJECTION_ID_SENTINEL', 'PRIVATE_EVENT_ID_SENTINEL',
+  ]) {
+    assert.equal(output.includes(value), false);
+  }
 });
 
 test('reports catalog and alias matches without claiming independent review', async () => {

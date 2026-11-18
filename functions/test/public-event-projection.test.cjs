@@ -163,6 +163,47 @@ test('stale triggers reconcile the current source and cannot recreate deleted pr
   assert.equal(firestore.records.has('publicYardSaleEvents/event-1'), false);
 });
 
+test('revoked exact consent refreshes the projection to general visibility only', async () => {
+  const firestore = new FakeFirestore();
+  firestore.set('generalLocations/nederland-tx', catalog);
+  firestore.set('yardSaleEvents/event-1', sourceEvent({
+    locationVisibility: 'exact',
+  }));
+  firestore.set('eventPrivate/event-1', {
+    userId: 'private-organizer-id',
+    address: '12 Main Street',
+    addressRevision: 'old-revision',
+  });
+  firestore.set('eventAddressConsent/event-1', {
+    organizerUid: 'private-organizer-id',
+    consentVersion: 'exact-address-v1',
+    addressRevision: 'old-revision',
+  });
+
+  await reconcilePublicEventProjection(firestore, 'event-1');
+  assert.equal(
+    firestore.records.get('publicYardSaleEvents/event-1').data.locationVisibility,
+    'exact',
+  );
+
+  firestore.set('yardSaleEvents/event-1', sourceEvent({
+    locationVisibility: 'general',
+    eventVersion: 2,
+  }));
+  firestore.delete('eventAddressConsent/event-1');
+  await reconcilePublicEventProjection(firestore, 'event-1');
+
+  const projection = firestore.records.get('publicYardSaleEvents/event-1').data;
+  assert.equal(projection.locationVisibility, 'general');
+  assert.deepEqual(Object.keys(projection).sort(), [
+    'createdAt', 'description', 'endDate', 'itemCount', 'location', 'locationId',
+    'locationVisibility', 'photoURL', 'schemaVersion', 'startDate', 'title', 'updatedAt',
+  ].sort());
+  for (const field of ['address', 'latitude', 'longitude', 'userId']) {
+    assert.equal(Object.hasOwn(projection, field), false);
+  }
+});
+
 test('transaction retries if the source changes while a projection update is running', async () => {
   const firestore = new FakeFirestore();
   firestore.set('generalLocations/nederland-tx', catalog);

@@ -20,6 +20,9 @@ production action requires separate authorization.
 - [ ] Verify the public event projection Functions and Rules tests, including
       malformed-source omission, stale-trigger reconciliation, and owner-only
       source listing.
+- [ ] Add and run a Firestore Emulator integration test that invokes the real
+      consent-revocation callable, observes the projection trigger, and
+      verifies the resulting public projection and private-address access.
 - [ ] Verify the production runtime configuration is limited to
       `yardsale-hub-93c49`, `us-south1`, the reviewed
       `yardsale-hub-prod-backend` identity, and the approved limits.
@@ -43,19 +46,72 @@ against the local `demo-yardsale-hub` emulator, never a live project.
 | Consent markers/history and username rate limits | Explicitly denied to all clients, as under the baseline catch-all. Only trusted backend code manages these records; limits are enforced by the callables, not by Firestore Rules. |
 | `users`, `items`, `favorites`, `reviews`, `messages`, and other paths | Existing rules and the final deny-all are unchanged. In particular, the candidate does not grant access to `publicProfiles` or add staging-only review constraints. |
 
-Before any cutover, review and provision catalog entries and aliases, migrate
-eligible legacy source events to canonical locations, and have organizers
-explicitly consent before exposing any legacy exact address. Server-write and
-review the entire projection collection before opening public lists, including
-free text: field allowlists cannot prove content is safe. Coordinate the
-projection-ready frontend and Rules cutover; old public clients reading
-`yardSaleEvents` will stop browsing and old direct exact-event writes will
-fail. Verify public-profile-dependent onboarding, seller and messaging flows
-separately: the captured baseline denies direct `publicProfiles` reads, so a
-client relying on them needs a separately reviewed compatibility decision.
-Production deployment remains blocked pending the production event-data audit,
-remediation review, emulator and user-flow verification, IAM verification,
-and separate release approvals.
+### Review-only migration and cutover plan
+
+The following is a plan, not authorization to inspect or change live data:
+
+1. **Inventory before migration.** After separate authorization, run the
+   aggregate production audit in a quiet period and review its totals. It now
+   scans every `publicYardSaleEvents` document as well as source, private, and
+   consent collections. Investigate unexpected projection fields, sensitive
+   field names, address-like text, source mismatches, orphan projections,
+   missing projections, and stale exact-consent state. The audit emits no
+   document IDs or values and is best-effort/non-atomic; repeat after writes
+   settle and after remediation. Pattern checks are not complete address
+   detection, and every public title/description/location still needs approved
+   content review.
+2. **Prepare legacy locations and events.** Have an authorized reviewer map
+   eligible legacy general events to independently reviewed canonical catalog
+   entries. Do not copy profile locations or infer that a legacy visibility
+   flag grants exact-address consent. Events that cannot be safely mapped
+   remain owner-manageable but unpublished. Obtain explicit, current
+   `exact-address-v1` consent through the approved organizer flow before
+   publishing any exact address; retain exact addresses only in
+   `eventPrivate`.
+3. **Clean and backfill projections while cutover is blocked.** Keep
+   production Rules publication blocked. Using a separately reviewed,
+   allowlisted server migration, remove orphan projections and rewrite or
+   omit every existing projection that is malformed, contains unexpected or
+   sensitive fields, embeds address-like text, or no longer matches its
+   source. Do not blindly rebuild unsafe free text. Backfill only eligible,
+   reviewed events; leave invalid legacy events unpublished. The existing
+   Functions triggers are not a collection-wide migration.
+4. **Re-audit and verify the cutover set.** Repeat the aggregate audit and
+   independently review proposed changes. Resolve all unsafe, orphaned, and
+   stale projection findings before enabling public list access. Decide
+   explicitly which source events are intentionally unpublished; a missing
+   projection is not itself proof that an event is eligible for backfill.
+   Confirm that exact projections have a matching current source, private
+   record, and active revision-bound consent marker. Keep deployment blocked
+   if the scan is inconclusive, changes continue during the scan, or
+   reviewer-attested content checks are incomplete.
+5. **Coordinate rollout and rollback.** After separate approvals, ensure the
+   trusted projection writer is ready, stage the compatible frontend and
+   candidate Rules together, and verify public browse/detail, owner editing,
+   explicit consent, revocation, and deletion. Never restore public source
+   listing as a fallback. If projection safety or freshness is uncertain,
+   keep public listing closed and investigate. The candidate remains
+   disconnected from `firebase.json` and all deployment configuration.
+
+### `publicProfiles` compatibility proposal
+
+The supplied production baseline and candidate deny direct client reads of
+`publicProfiles`; do not add a broader Rules grant. The smallest proposed
+compatibility path is a separately reviewed server callable that accepts one
+validated profile UID, reads that single Admin-SDK document, validates its
+shape, and returns only `{ username }` (or an explicit not-found result).
+It must not support collection queries or return `displayName`, `photoURL`,
+`memberSince`, email, or arbitrary document fields. Migrate only the five
+existing username consumers to that endpoint and retain the current signup
+and rename callables. Decide separately whether unauthenticated item-detail
+visitors must resolve seller usernames; requiring authentication could break
+that flow. Add callable authorization/abuse controls and user-flow coverage
+before adopting the proposal. This PR review update does not implement that
+endpoint or change Rules.
+
+Production deployment remains blocked pending the production event-data
+audit, remediation review, emulator and user-flow verification, IAM
+verification, and separate release approvals.
 
 ## General-location catalog
 
@@ -248,7 +304,8 @@ projection availability before switching public traffic.
       modify server-managed `eventVersion`, or access consent/rate-limit records.
 - [ ] Verify exact publication, address revision matching, stale writes,
       revocation, deletion, idempotent retry, and anonymous address reads only
-      with a valid active marker.
+      with a valid active marker. Cover revocation plus projection refresh in
+      the same Functions/Firestore Emulator test.
 - [ ] Verify registration and rename rolling limits under concurrent calls and
       retain the 30-day rename cooldown.
 - [ ] Verify existing-account onboarding does not overwrite private user data.
@@ -268,7 +325,10 @@ Do not treat staging verification as production authorization.
 
 - [ ] Review aggregate audit results for public addresses/coordinates,
       missing/orphan private records, owner mismatches, and exact events
-      without matching consent. The tool does not print addresses or user IDs.
+      without matching consent. Also review every public projection for
+      unexpected fields, sensitive field names, address-like text, orphaning,
+      source mismatch, missing projection, and stale exact-consent state. The
+      tool does not print document IDs, addresses, or user IDs.
 - [ ] If legacy data requires repair, review a migration plan and obtain
       separate authorization. Never infer consent from legacy visibility.
 - [ ] Verify the production backend service account and its minimum required
