@@ -9,7 +9,8 @@ import { auth, db } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { User, Package, Calendar } from 'lucide-react';
-import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { getMyPublicUsername } from '@/lib/public-profile';
 
 export default function Dashboard() {
   const { user, loading } = useAuthStore();
@@ -47,14 +48,13 @@ export default function Dashboard() {
     setPublicUsername(null);
     if (!user?.id) return;
 
-    return onSnapshot(
-      doc(db, 'publicProfiles', user.id),
-      snapshot => {
-        const username = snapshot.data()?.username;
-        setPublicUsername(typeof username === 'string' && username ? username : null);
-      },
-      () => setPublicUsername(null),
-    );
+    let active = true;
+    getMyPublicUsername().then(username => {
+      if (active) setPublicUsername(username);
+    }).catch(() => {
+      if (active) setPublicUsername(null);
+    });
+    return () => { active = false; };
   }, [user?.id]);
 
   if (loading) {

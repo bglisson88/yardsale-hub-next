@@ -11,6 +11,7 @@
     "build:functions": "npm --prefix functions run build",
     "test:functions": "node scripts/run-functions-tests.cjs smoke",
     "test:functions:integration": "node scripts/run-functions-tests.cjs integration",
+    "test:functions:public-profile-integration": "npm --prefix functions run build && firebase emulators:exec --project demo-yardsale-hub --only auth,firestore,functions \"FUNCTIONS_EMULATOR_HOST=127.0.0.1:5001 node --test --test-concurrency=1 functions/test/public-profile-read.integration.test.cjs\"",
     "test:functions:projection-audit-integration": "npm --prefix functions run build && firebase emulators:exec --project demo-yardsale-hub --only firestore \"node --test --test-concurrency=1 functions/test/public-event-projection-audit.integration.test.cjs\"",
     "test": "node scripts/run-tests.cjs",
     "test:rules": "firebase emulators:exec --project demo-yardsale-hub --only firestore,storage \"node --test --test-concurrency=1 tests/firestore.rules.test.cjs tests/firebase-config.rules.test.cjs tests/public-profile.rules.test.cjs tests/storage.rules.test.cjs && YSH_TEST_PRODUCTION_RULES_CANDIDATE=1 node --test tests/firestore.rules.test.cjs\"",

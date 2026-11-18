@@ -93,21 +93,29 @@ The following is a plan, not authorization to inspect or change live data:
    keep public listing closed and investigate. The candidate remains
    disconnected from `firebase.json` and all deployment configuration.
 
-### `publicProfiles` compatibility proposal
+### `publicProfiles` compatibility
 
 The supplied production baseline and candidate deny direct client reads of
-`publicProfiles`; do not add a broader Rules grant. The smallest proposed
-compatibility path is a separately reviewed server callable that accepts one
-validated profile UID, reads that single Admin-SDK document, validates its
-shape, and returns only `{ username }` (or an explicit not-found result).
-It must not support collection queries or return `displayName`, `photoURL`,
-`memberSince`, email, or arbitrary document fields. Migrate only the five
-existing username consumers to that endpoint and retain the current signup
-and rename callables. Decide separately whether unauthenticated item-detail
-visitors must resolve seller usernames; requiring authentication could break
-that flow. Add callable authorization/abuse controls and user-flow coverage
-before adopting the proposal. This PR review update does not implement that
-endpoint or change Rules.
+`publicProfiles`; do not add a broader Rules grant. The `getPublicUsername`
+callable supports only self, public-item, and qualifying-conversation lookup
+modes, validates the stored profile and matching username claim, and returns
+only `{ username: string | null }`. Self identity comes from authentication;
+item mode derives the seller UID from an existing public item; conversation
+mode requires authentication and derives the partner from a message sent by
+the caller. Arbitrary UID lookup and client profile reads/listing remain
+denied. The five existing consumers use a shared callable helper, while
+signup and rename continue using their existing callables.
+
+The helper caches results for 30 seconds, deduplicates in-flight calls,
+invalidates on account changes/sign-out, and is explicitly invalidated after
+the caller renames their username. Other clients do not receive realtime
+rename updates; they refresh on a later username lookup after the cache TTL,
+typically by navigating back to a username-consuming view or remounting it.
+The lookup callable applies a bounded in-memory limit per authenticated UID
+or anonymous source IP. This is best-effort per Functions process, not a
+distributed quota; cold starts and multiple instances can reduce aggregate
+enforcement. It does not replace App Check or durable abuse controls, which
+require separate approval if stronger limits are needed.
 
 Production deployment remains blocked pending the production event-data
 audit, remediation review, emulator and user-flow verification, IAM

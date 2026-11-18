@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   collection,
-  doc,
   query,
   where,
   orderBy,
@@ -12,6 +11,7 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { getConversationUsername } from '@/lib/public-profile';
 import { useAuthStore } from '@/store';
 import { useAuthContext } from '@/hooks';
 import { LoadingSpinner } from '@/components';
@@ -94,9 +94,9 @@ export default function Messages() {
       where('senderId', '==', uid)
     );
 
-    const profileListeners = new Map<
+    const profileLookups = new Map<
       string,
-      { stop: () => void; deactivate: () => void }
+      { messageId: string; deactivate: () => void }
     >();
 
     const unsubscribe = onSnapshot(
@@ -104,21 +104,20 @@ export default function Messages() {
       (snapshot) => {
         if (!active) return;
 
-        const userIds = new Set<string>();
+        const userIds = new Map<string, string>();
 
-        snapshot.forEach((messageDoc) => {
-          const recipientId = messageDoc.data().recipientId;
+        snapshot.forEach(messageDoc => {
+          const { recipientId } = messageDoc.data();
 
-          if (typeof recipientId === 'string' && recipientId) {
-            userIds.add(recipientId);
+          if (typeof recipientId === 'string' && recipientId && !userIds.has(recipientId)) {
+            userIds.set(recipientId, messageDoc.id);
           }
         });
 
-        for (const [id, listener] of profileListeners) {
-          if (!userIds.has(id)) {
-            listener.deactivate();
-            profileListeners.delete(id);
-            listener.stop();
+        for (const [id, lookup] of profileLookups) {
+          if (!userIds.has(id) || userIds.get(id) !== lookup.messageId) {
+            lookup.deactivate();
+            profileLookups.delete(id);
           }
         }
 
@@ -127,7 +126,7 @@ export default function Messages() {
             return previous;
           }
 
-          const conversations = Array.from(userIds).map((id) => {
+          const conversations = Array.from(userIds.keys()).map(id => {
             const existing = previous.conversations.find(
               (conversation) => conversation.id === id
             );
@@ -161,8 +160,8 @@ export default function Messages() {
           };
         });
 
-        for (const id of userIds) {
-          if (profileListeners.has(id)) continue;
+        for (const [id, messageId] of userIds) {
+          if (profileLookups.has(id)) continue;
 
           let listenerActive = true;
 
@@ -186,22 +185,14 @@ export default function Messages() {
             });
           };
 
-          const stopListening = onSnapshot(
-            doc(db, 'publicProfiles', id),
-            (profileSnapshot) => {
-              const username = profileSnapshot.data()?.username;
+          getConversationUsername(messageId).then(username => {
+            updateUsername(username ?? 'Username unavailable');
+          }).catch(() => {
+            updateUsername('Username unavailable');
+          });
 
-              updateUsername(
-                typeof username === 'string' && username
-                  ? username
-                  : 'Username unavailable'
-              );
-            },
-            () => updateUsername('Username unavailable')
-          );
-
-          profileListeners.set(id, {
-            stop: stopListening,
+          profileLookups.set(id, {
+            messageId,
             deactivate: () => {
               listenerActive = false;
             },
@@ -223,12 +214,11 @@ export default function Messages() {
       active = false;
       unsubscribe();
 
-      for (const listener of profileListeners.values()) {
+      for (const listener of profileLookups.values()) {
         listener.deactivate();
-        listener.stop();
       }
 
-      profileListeners.clear();
+      profileLookups.clear();
     };
   }, [ownerId]);
 

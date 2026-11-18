@@ -10,6 +10,7 @@ import { useAuthStore } from '@/store';
 import { LoadingSpinner } from '@/components';
 import { categoryLabel, subcategoryLabel } from '@/lib/categories';
 import { itemDetails, validItemId, type ItemDetails } from '@/lib/item-details';
+import { getItemSellerUsername } from '@/lib/public-profile';
 
 type ListingState =
   | { status: 'loading' | 'missing' | 'error' }
@@ -32,26 +33,12 @@ function ItemDetail({ id }: { id: string }) {
     if (!sellerId) return;
 
     let active = true;
-    const unsubscribe = onSnapshot(
-      doc(db, 'publicProfiles', sellerId),
-      snapshot => {
-        if (!active) return;
-        const username = snapshot.data()?.username;
-        setSellerProfile(
-          typeof username === 'string' && /^[A-Za-z0-9_]{3,20}$/.test(username)
-            ? { sellerId, username }
-            : null
-        );
-      },
-      () => {
-        if (active) setSellerProfile(null);
-      }
-    );
-
-    return () => {
-      active = false;
-      unsubscribe();
-    };
+    getItemSellerUsername(id).then(username => {
+      if (active) setSellerProfile(username ? { sellerId, username } : null);
+    }).catch(() => {
+      if (active) setSellerProfile(null);
+    });
+    return () => { active = false; };
   }, [sellerId]);
 
   useEffect(() => {

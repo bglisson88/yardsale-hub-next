@@ -50,6 +50,9 @@ jobs:
       - name: Test Functions and projection audit integration with emulators
         run: npm run test:functions:integration
 
+      - name: Test scoped public username lookup with emulators
+        run: npm run test:functions:public-profile-integration
+
       - name: Type-check
         run: npm run type-check
 

@@ -6,12 +6,12 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { signOut } from 'firebase/auth';
 import toast from 'react-hot-toast';
-import { auth, db } from '@/lib/firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { auth } from '@/lib/firebase';
 import { useAuthContext } from '@/hooks';
 import { useAuthStore } from '@/store';
 import { Avatar } from './Avatar';
 import { Logo } from './Logo';
+import { getMyPublicUsername } from '@/lib/public-profile';
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
@@ -38,25 +38,13 @@ export function Navbar() {
     const uid = user.id;
     let active = true;
 
-    const unsubscribe = onSnapshot(
-      doc(db, 'publicProfiles', uid),
-      snapshot => {
-        if (!active) return;
-        const username = snapshot.data()?.username;
-        setPublicProfileName(
-          typeof username === 'string' && username
-            ? { uid, username }
-            : null
-        );
-      },
-      () => {
-        if (active) setPublicProfileName(null);
-      },
-    );
-
+    getMyPublicUsername().then(username => {
+      if (active) setPublicProfileName(username ? { uid, username } : null);
+    }).catch(() => {
+      if (active) setPublicProfileName(null);
+    });
     return () => {
       active = false;
-      unsubscribe();
     };
   }, [user?.id]);
 

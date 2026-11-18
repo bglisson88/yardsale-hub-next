@@ -8,7 +8,7 @@
   "scripts": {
     "build": "tsc",
     "test:username": "npm run build && node --test test/username.test.cjs",
-    "test:public-profile": "npm run build && node --test test/public-profile.test.cjs test/runtime-options.test.cjs test/rate-limit.test.cjs test/event-consent.test.cjs test/public-event-projection.test.cjs test/public-event-projection-audit.test.cjs test/audit-production-events.test.cjs",
+    "test:public-profile": "npm run build && node --test test/public-profile.test.cjs test/public-profile-read.test.cjs test/runtime-options.test.cjs test/rate-limit.test.cjs test/event-consent.test.cjs test/public-event-projection.test.cjs test/public-event-projection-audit.test.cjs test/audit-production-events.test.cjs",
     "audit:projections": "npm run build && node --env-file=.env.yardsale-hub-staging scripts/audit-public-event-projections.cjs"
   },
   "dependencies": {

@@ -23,6 +23,7 @@ const tests = [
   'tests/selectors.test.cjs',
   'tests/usability.test.cjs',
   'tests/signup.test.cjs',
+  'tests/public-profile.test.cjs',
   'tests/username-rate-limit.test.cjs',
   'tests/messages.test.cjs',
 ];

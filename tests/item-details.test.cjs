@@ -44,6 +44,7 @@ function harness({ id = 'chair', user = null, authLoading = false } = {}) {
   const effects = [];
   const listeners = [];
   const reads = [];
+  const usernameLookups = [];
   let cursor = 0, effectCursor = 0, tree;
   let authState = { user, loading: authLoading };
   const stub = () => null;
@@ -80,6 +81,13 @@ function harness({ id = 'chair', user = null, authLoading = false } = {}) {
     '@/components': { LoadingSpinner: () => React.createElement('span', null, 'Loading') },
     '@/lib/categories': categories,
     '@/lib/item-details': details,
+    '@/lib/public-profile': {
+      getItemSellerUsername(itemId) {
+        return new Promise((resolve, reject) => {
+          usernameLookups.push({ itemId, resolve, reject });
+        });
+      },
+    },
   });
   const wrapper = Page({ params: { id } });
   function render() {
@@ -101,7 +109,7 @@ function harness({ id = 'chair', user = null, authLoading = false } = {}) {
   }
   render();
   return {
-    reads, listeners, find, render,
+    reads, listeners, usernameLookups, find, render,
     html: () => renderToStaticMarkup(tree),
     emit(data = listing) {
       const listener = [...listeners].reverse().find(
@@ -120,24 +128,16 @@ function harness({ id = 'chair', user = null, authLoading = false } = {}) {
       render();
     },
     retry() { find(node => node.props?.children === 'Try again').props.onClick(); render(); render(); },
-    emitProfile(sellerId, data) {
-      const listener = [...listeners].reverse().find(
-        entry => entry.target === `publicProfiles/${sellerId}` && !entry.unsubscribed
-      );
-      assert.ok(listener, 'Active public profile listener exists');
-      listener.next({
-        id: sellerId,
-        exists: () => data !== null,
-        data: () => data,
-      });
+    async resolveUsername(index, username) {
+      assert.ok(usernameLookups[index], 'Username lookup exists');
+      usernameLookups[index].resolve(username);
+      await new Promise(resolve => setImmediate(resolve));
       render();
     },
-    failProfile(sellerId) {
-      const listener = [...listeners].reverse().find(
-        entry => entry.target === `publicProfiles/${sellerId}` && !entry.unsubscribed
-      );
-      assert.ok(listener, 'Active public profile listener exists');
-      listener.error(new Error('Private profile details must not leak'));
+    async rejectUsername(index) {
+      assert.ok(usernameLookups[index], 'Username lookup exists');
+      usernameLookups[index].reject(new Error('Private profile details must not leak'));
+      await new Promise(resolve => setImmediate(resolve));
       render();
     },
     auth(next) { authState = next; render(); },
@@ -157,10 +157,7 @@ test('detail subscribes to the URL document, renders saved photos after refresh,
     }
     for (const url of listing.photoURLs) assert.ok(html.includes(url.replace(/&/g, '&amp;')));
     assert.doesNotMatch(html, /private@example|Private street|Edit Listing/);
-    assert.deepEqual(page.reads, [
-      { collection: 'items', id: 'chair' },
-      { collection: 'publicProfiles', id: 'seller' },
-    ]);
+    assert.deepEqual(page.reads, [{ collection: 'items', id: 'chair' }]);
     page.unmount();
     assert.ok(page.listeners[0].unsubscribed);
   }
@@ -236,14 +233,14 @@ test('shared listing cards link to encoded document IDs, not title search', () =
 });
 
 
-test('public seller username is displayed for guests and owners', () => {
+test('public seller username is displayed for guests and owners', async () => {
   for (const user of [null, { id: 'seller' }]) {
     const page = harness({ user });
     page.emit();
 
     assert.match(page.html(), /YardSale Hub member/);
 
-    page.emitProfile('seller', { username: 'yardsaletest2' });
+    await page.resolveUsername(0, 'yardsaletest2');
 
     assert.match(page.html(), /yardsaletest2/);
     assert.doesNotMatch(page.html(), /private@example|Private street/);
@@ -259,17 +256,11 @@ test('public seller username is displayed for guests and owners', () => {
   }
 });
 
-test('missing and invalid public usernames use the generic seller fallback', () => {
-  for (const profile of [
-    null,
-    {},
-    { username: 'ab' },
-    { username: 'invalid username' },
-    { username: 12345 },
-  ]) {
+test('missing public usernames use the generic seller fallback', async () => {
+  for (const username of [null, null, null]) {
     const page = harness();
     page.emit();
-    page.emitProfile('seller', profile);
+    await page.resolveUsername(0, username);
 
     assert.match(page.html(), /YardSale Hub member/);
     assert.doesNotMatch(page.html(), /yardsaletest2/);
@@ -278,11 +269,11 @@ test('missing and invalid public usernames use the generic seller fallback', () 
   }
 });
 
-test('public profile lookup errors do not expose private information', () => {
+test('public profile lookup errors do not expose private information', async () => {
   const page = harness();
   page.emit();
 
-  page.failProfile('seller');
+  await page.rejectUsername(0);
 
   assert.match(page.html(), /YardSale Hub member/);
   assert.doesNotMatch(page.html(), /Private profile details|private@example|Private street/);
@@ -291,41 +282,23 @@ test('public profile lookup errors do not expose private information', () => {
   assert.ok(page.listeners.every(listener => listener.unsubscribed));
 });
 
-test('switching sellers never displays a stale public username', () => {
+test('switching sellers never displays a stale public username', async () => {
   const page = harness();
   page.emit();
 
-  const oldProfile = page.listeners.find(
-    listener => listener.target === 'publicProfiles/seller'
-  );
-
-  assert.ok(oldProfile);
-  page.emitProfile('seller', { username: 'seller_one' });
-  assert.match(page.html(), /seller_one/);
-
+  assert.equal(page.usernameLookups[0].itemId, 'chair');
   page.emit({ ...listing, userId: 'seller-b' });
 
-  assert.ok(oldProfile.unsubscribed);
   assert.match(page.html(), /YardSale Hub member/);
-  assert.doesNotMatch(page.html(), /seller_one/);
 
-  const newProfile = page.listeners.find(
-    listener => listener.target === 'publicProfiles/seller-b'
-  );
-
-  assert.ok(newProfile);
-
-  // Simulate a callback arriving after the previous listener was removed.
-  oldProfile.next({
-    id: 'seller',
-    exists: () => true,
-    data: () => ({ username: 'seller_one' }),
-  });
+  // A prior request may complete after the item switches sellers.
+  await page.resolveUsername(0, 'seller_one');
 
   assert.match(page.html(), /YardSale Hub member/);
   assert.doesNotMatch(page.html(), /seller_one/);
 
-  page.emitProfile('seller-b', { username: 'seller_two' });
+  assert.equal(page.usernameLookups[1].itemId, 'chair');
+  await page.resolveUsername(1, 'seller_two');
 
   assert.match(page.html(), /seller_two/);
   assert.doesNotMatch(page.html(), /seller_one/);

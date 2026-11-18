@@ -68,19 +68,13 @@ function harness(file, initialAuth = { user: null, loading: false }) {
     'firebase/firestore': {
       collection: (_, name) => { queriedCollections.push(name); return name; },
       doc: (_, collectionName, id) => ({ collectionName, id }),
-      onSnapshot: (reference, onNext) => {
-        if (reference.collectionName === 'publicProfiles') {
-          onNext({
-            data: () => ({ username: 'test_neighbor' }),
-          });
-        }
-        return () => {};
-      },
+      onSnapshot: () => () => {},
       query: stub, where: (...args) => constraints.push(args), Timestamp: { now: stub },
       getDocs: async () => ({ docs: [] }),
     },
     'react-hot-toast': { __esModule: true, default: { error: message => errors.push(message) } },
     '@/lib/firebase': { auth: {}, db: {} },
+    '@/lib/public-profile': { getMyPublicUsername: async () => 'test_neighbor' },
     '@/hooks': {
       useAuthContext: stub,
       useItems: () => ({ items: [] }),
