@@ -33,6 +33,35 @@ function assertCallableFailure(promise, code) {
   });
 }
 
+async function anonymousLookup(data) {
+  const response = await fetch(
+    `http://${HOST}:${PORTS.functions}/${PROJECT_ID}/us-south1/getPublicUsername`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // The emulator forwards to its worker over IPC, which has no client IP.
+        'X-Forwarded-For': '10.203.0.1',
+      },
+      body: JSON.stringify({ data }),
+      signal: AbortSignal.timeout(10_000),
+    },
+  );
+  const body = await response.json();
+  if (Object.hasOwn(body, 'error')) {
+    assert.equal(response.ok, false);
+    assert.equal(typeof body.error.status, 'string');
+    assert.equal(typeof body.error.message, 'string');
+    const error = new Error(body.error.message);
+    error.code = `functions/${body.error.status.toLowerCase().replaceAll('_', '-')}`;
+    if (Object.hasOwn(body.error, 'details')) error.details = body.error.details;
+    throw error;
+  }
+  assert.equal(response.ok, true);
+  assert.ok(Object.hasOwn(body, 'result'), 'callable response must contain a result');
+  return { data: body.result };
+}
+
 function client(label, uid) {
   const app = initializeApp(
     { projectId: PROJECT_ID, apiKey: 'emulator-only' },
@@ -48,7 +77,7 @@ function client(label, uid) {
   return {
     auth,
     firestore,
-    lookup: httpsCallable(functions, 'getPublicUsername'),
+    lookup: uid ? httpsCallable(functions, 'getPublicUsername') : anonymousLookup,
     signIn: uid ? createUserWithEmailAndPassword(
       auth, `${uid}@example.test`, 'emulator-test-password',
     ).then(result => {
@@ -298,10 +327,14 @@ test('scoped username callable works with candidate Rules without broadening pro
   const abuseAttempts = await Promise.allSettled(Array.from({ length: 130 }, () =>
     anonymous.lookup({ mode: 'item', itemId }),
   ));
+  const quotaFailures = abuseAttempts.filter(result => result.status === 'rejected');
+  assert.ok(abuseAttempts.some(result => result.status === 'fulfilled'));
+  for (const result of quotaFailures) {
+    assert.equal(result.reason.code, 'functions/resource-exhausted');
+    assert.equal(result.reason.message, 'Too many username lookups. Please try again later.');
+  }
   assert.ok(
-    abuseAttempts.some(result =>
-      result.status === 'rejected' &&
-      result.reason.code === 'functions/resource-exhausted'),
+    quotaFailures.length > 0,
     'anonymous item lookups from one source must be rate limited',
   );
 });
