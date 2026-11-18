@@ -3,14 +3,15 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { doc, getDocFromServer } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
-import { auth, db, functions } from '@/lib/firebase';
+import { auth, functions } from '@/lib/firebase';
 import { normalizeUsername } from '@/lib/signup';
 import { useAuthContext } from '@/hooks';
 import { useAuthStore } from '@/store';
 import { LoadingSpinner } from '@/components';
 import { Avatar } from '@/components/Avatar';
+import { usernameRateLimitErrorMessage } from '@/lib/username-rate-limit';
+import { getMyPublicUsername, invalidatePublicUsernameCache } from '@/lib/public-profile';
 
 function renameErrorMessage(error: unknown): string {
   const code = typeof error === 'object' && error !== null && 'code' in error
@@ -32,8 +33,10 @@ function renameErrorMessage(error: unknown): string {
     case 'functions/unavailable':
     case 'functions/deadline-exceeded':
     case 'functions/aborted':
-    case 'functions/resource-exhausted':
       return 'The username service is temporarily unavailable. Please retry the same username.';
+    case 'functions/resource-exhausted':
+      return usernameRateLimitErrorMessage(error, 'rename') ??
+        'The username service is temporarily unavailable. Please retry the same username.';
     default:
       return 'Unable to change your username. Please try again or contact support.';
   }
@@ -42,7 +45,7 @@ function renameErrorMessage(error: unknown): string {
 export default function ProfilePage() {
   const { user, loading } = useAuthStore();
   const [publicProfile, setPublicProfile] = useState<
-    { uid: string; status: 'loading' | 'missing' | 'error' } |
+    { uid: string; status: 'loading' | 'unavailable' | 'error' } |
     { uid: string; status: 'ready'; username: string }
   >({ uid: '', status: 'loading' });
   const [retry, setRetry] = useState(0);
@@ -62,16 +65,13 @@ export default function ProfilePage() {
     let active = true;
     const uid = user.id;
     setPublicProfile({ uid, status: 'loading' });
-    getDocFromServer(doc(db, 'publicProfiles', uid)).then(snapshot => {
+    getMyPublicUsername().then(username => {
       if (!active) return;
-      if (!snapshot.exists()) {
-        setPublicProfile({ uid, status: 'missing' });
+      if (!username) {
+        setPublicProfile({ uid, status: 'unavailable' });
         return;
       }
-      const username: unknown = snapshot.data().username;
-      setPublicProfile(typeof username === 'string' && username
-        ? { uid, status: 'ready', username }
-        : { uid, status: 'error' });
+      setPublicProfile({ uid, status: 'ready', username });
     }).catch(() => {
       if (active) setPublicProfile({ uid, status: 'error' });
     });
@@ -100,6 +100,7 @@ export default function ProfilePage() {
       const rename = httpsCallable<{ username: string }, { username: string }>(functions, 'renameUsername');
       const result = await rename({ username });
       if (currentUserId.current !== uid || auth.currentUser?.uid !== uid) return;
+      invalidatePublicUsernameCache();
       setPublicProfile({ uid, status: 'ready', username: result.data.username });
       setEditing(false);
       setRenameMessage({ text: `Your username is now ${result.data.username}.`, error: false });
@@ -138,8 +139,9 @@ export default function ProfilePage() {
                     }}>Edit Username</button>
                   </>
                 ) :
-                publicProfile.status === 'missing' ? (
-                  <>Not registered. <Link href="/auth/signup" className="text-blue-600 hover:underline">Finish username setup</Link></>
+                publicProfile.status === 'unavailable' ? (
+                  <>Username unavailable. <Link href="/auth/signup" className="text-blue-600 hover:underline">Continue username setup</Link>{' '}
+                    <button type="button" className="text-blue-600 hover:underline" onClick={() => setRetry(value => value + 1)}>Try again</button></>
                 ) : publicProfile.status === 'error' ? (
                   <>Unable to load your username. <button type="button" className="text-blue-600 hover:underline" onClick={() => setRetry(value => value + 1)}>Try again</button></>
                 ) : 'Loading...'}

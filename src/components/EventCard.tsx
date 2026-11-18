@@ -2,12 +2,12 @@
 
 import Link from 'next/link';
 import { Calendar, MapPin, Users } from 'lucide-react';
-import type { YardSaleEvent } from '@/types';
+import type { PublicYardSaleEvent } from '@/types';
 
-export function EventCard({ event, appearance = 'light' }: { event: YardSaleEvent; appearance?: 'light' | 'dark' }) {
+export function EventCard({ event, appearance = 'light' }: { event: PublicYardSaleEvent; appearance?: 'light' | 'dark' }) {
   const dark = appearance === 'dark';
   return (
-    <Link href={`/events?${new URLSearchParams({ search: event.title })}`} className={`group overflow-hidden rounded-2xl border transition-colors ${dark ? 'bg-slate-900 border-slate-800 hover:border-slate-600' : 'bg-white border-gray-200 hover:border-gray-400'}`}>
+    <Link href={`/events/${encodeURIComponent(event.id)}`} className={`group overflow-hidden rounded-2xl border transition-colors ${dark ? 'bg-slate-900 border-slate-800 hover:border-slate-600' : 'bg-white border-gray-200 hover:border-gray-400'}`}>
       <div className={`h-40 overflow-hidden ${dark ? 'bg-slate-800' : 'bg-gray-100'}`}>
         {event.photoURL ? (
           // eslint-disable-next-line @next/next/no-img-element

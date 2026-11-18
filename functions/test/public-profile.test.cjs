@@ -40,6 +40,41 @@ function request(data, auth = { uid: 'user-123', token: {} }) {
   return { data, auth };
 }
 
+function documentReference(path) {
+  return {
+    path,
+    id: path.slice(path.lastIndexOf('/') + 1),
+    collection: name => ({
+      doc: id => documentReference(`${path}/${name}/${id}`),
+    }),
+  };
+}
+
+function firestoreWithRateLimit(records, profileTransaction, transactionError = null) {
+  let transactionCount = 0;
+  return {
+    collection: name => ({
+      doc: id => documentReference(`${name}/${id}`),
+    }),
+    runTransaction: callback => {
+      transactionCount += 1;
+      if (transactionCount > 1) {
+        if (transactionError) throw transactionError;
+        return callback(profileTransaction);
+      }
+      return callback({
+        async get(ref) {
+          return {
+            exists: records.has(ref.path),
+            get: key => records.get(ref.path)?.[key],
+          };
+        },
+        set(ref, data) { records.set(ref.path, data); },
+      });
+    },
+  };
+}
+
 async function assertCallableError(call, code, message, details = undefined) {
   let error;
   try {
@@ -63,7 +98,7 @@ function mockRegistration(t, records, uid = 'user-123') {
   const reads = [];
   const writes = [];
   const collection = name => ({
-    doc: id => ({ path: `${name}/${id}`, id }),
+    doc: id => documentReference(`${name}/${id}`),
     select: () => ({
       where: (_field, _operator, value) => ({ kind: 'private-users-query', uid: value }),
     }),
@@ -96,6 +131,12 @@ function mockRegistration(t, records, uid = 'user-123') {
           }));
         return { docs };
       }
+      if (ref.path?.startsWith('usernameRateLimits/')) {
+        return {
+          exists: records.has(ref.path),
+          get: key => records.get(ref.path)?.[key],
+        };
+      }
       return {
         exists: records.has(ref.path),
         data: () => records.get(ref.path),
@@ -104,14 +145,31 @@ function mockRegistration(t, records, uid = 'user-123') {
     create(ref, data) { writes.push(['create', ref.path, data]); },
     delete(ref) { writes.push(['delete', ref.path]); },
     update(ref, data) { writes.push(['update', ref.path, data]); },
+    set(ref, data) {
+      if (ref.path.startsWith('usernameRateLimits/')) records.set(ref.path, data);
+      else writes.push(['set', ref.path, data]);
+    },
   };
   const creationTime = 'Mon, 01 Jan 2024 00:00:00 GMT';
   t.mock.method(adminAuth, 'getAuth', () => ({
     getUser: async () => ({ disabled: false, metadata: { creationTime } }),
   }));
+  let transactionCount = 0;
   t.mock.method(adminFirestore, 'getFirestore', () => ({
     collection,
-    runTransaction: callback => callback(transaction),
+    runTransaction: callback => {
+      transactionCount += 1;
+      if (transactionCount > 1) return callback(transaction);
+      return callback({
+        async get(ref) {
+          return {
+            exists: records.has(ref.path),
+            get: key => records.get(ref.path)?.[key],
+          };
+        },
+        set(ref, data) { records.set(ref.path, data); },
+      });
+    },
   }));
   return {
     reads,
@@ -348,10 +406,8 @@ test('rename transaction moves the claim and updates only approved fields', asyn
     update(ref, data) { writes.push(['update', ref.path, data]); },
   };
   t.mock.method(adminAuth, 'getAuth', () => ({ getUser: async () => ({ disabled: false }) }));
-  t.mock.method(adminFirestore, 'getFirestore', () => ({
-    collection: collection => ({ doc: id => ({ path: `${collection}/${id}` }) }),
-    runTransaction: callback => callback(transaction),
-  }));
+  t.mock.method(adminFirestore, 'getFirestore', () =>
+    firestoreWithRateLimit(records, transaction));
 
   assert.deepEqual(await renameUsername.run(request({ username: 'NEW_NAME' })), { username: 'new_name' });
   assert.deepEqual(writes.slice(0, 3), [
@@ -385,10 +441,8 @@ test('rename retries ignore later reservations and do not write', async t => {
     update() { assert.fail('Unexpected update'); },
   };
   t.mock.method(adminAuth, 'getAuth', () => ({ getUser: async () => ({ disabled: false }) }));
-  t.mock.method(adminFirestore, 'getFirestore', () => ({
-    collection: collection => ({ doc: id => ({ path: `${collection}/${id}` }) }),
-    runTransaction: callback => callback(transaction),
-  }));
+  t.mock.method(adminFirestore, 'getFirestore', () =>
+    firestoreWithRateLimit(records, transaction));
 
   assert.deepEqual(await renameUsername.run(request({ username: 'SELLER_1' })), { username: 'seller_1' });
 });
@@ -415,10 +469,8 @@ test('rename enforces the full cooldown including fractional timestamps', async 
     update(ref) { writes.push(['update', ref.path]); },
   };
   t.mock.method(adminAuth, 'getAuth', () => ({ getUser: async () => ({ disabled: false }) }));
-  t.mock.method(adminFirestore, 'getFirestore', () => ({
-    collection: collection => ({ doc: id => ({ path: `${collection}/${id}` }) }),
-    runTransaction: callback => callback(transaction),
-  }));
+  t.mock.method(adminFirestore, 'getFirestore', () =>
+    firestoreWithRateLimit(records, transaction));
   const rename = () => renameUsername.run(request({ username: 'new_name' }));
   const assertCooldown = () => assertCallableError(
     rename, 'failed-precondition', 'You can change your username once every 30 days.',
@@ -452,12 +504,12 @@ test('rename enforces the full cooldown including fractional timestamps', async 
 
 test('rename maps transient backend errors to safe callable responses', async t => {
   t.mock.method(adminAuth, 'getAuth', () => ({ getUser: async () => ({ disabled: false }) }));
-  t.mock.method(adminFirestore, 'getFirestore', () => ({
-    collection: collection => ({ doc: id => ({ path: `${collection}/${id}` }) }),
-    runTransaction: async () => {
-      throw Object.assign(new Error('private backend detail'), { code: 14 });
-    },
-  }));
+  t.mock.method(adminFirestore, 'getFirestore', () =>
+    firestoreWithRateLimit(
+      new Map(),
+      null,
+      Object.assign(new Error('private backend detail'), { code: 14 }),
+    ));
   await assertCallableError(
     () => renameUsername.run(request({ username: 'seller_1' })),
     'unavailable',

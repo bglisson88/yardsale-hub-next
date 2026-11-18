@@ -1,12 +1,23 @@
-import { doc, getDoc, writeBatch } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import { ref } from 'firebase/storage';
-import { db, storage } from '@/lib/firebase';
+import { db, functions, storage } from '@/lib/firebase';
+
+const pendingDeleteOperations = new Map<string, {
+  eventVersion: number;
+  updatedAtMs: number | null;
+  operationId: string;
+}>();
 
 export async function deleteOwnedEvent(eventId: string, userId: string): Promise<string | null> {
   const eventRef = doc(db, 'yardSaleEvents', eventId);
   const privateRef = doc(db, 'eventPrivate', eventId);
   const event = await getDoc(eventRef);
-  if (!event.exists()) throw new Error('This event no longer exists.');
+  const operationKey = `${userId}:${eventId}`;
+  if (!event.exists()) {
+    pendingDeleteOperations.delete(operationKey);
+    return 'Event was already deleted. Its photo could not be verified for cleanup.';
+  }
   if (event.data().userId !== userId) throw new Error('You can only delete your own events.');
   const privateEvent = await getDoc(privateRef);
   if (privateEvent.exists() && privateEvent.data().userId !== userId) {
@@ -14,13 +25,39 @@ export async function deleteOwnedEvent(eventId: string, userId: string): Promise
   }
 
   const photoURL = event.data().photoURL;
-  const batch = writeBatch(db);
-  batch.delete(eventRef);
-  if (privateEvent.exists()) batch.delete(privateRef);
   try {
-    await batch.commit();
+    const eventVersion: unknown = event.data().eventVersion ?? 0;
+    if (!Number.isSafeInteger(eventVersion) || (eventVersion as number) < 0) {
+      throw new Error('The event version is invalid. Reload and try again.');
+    }
+    const updatedAt = event.data().updatedAt;
+    const expectedUpdatedAtMs = updatedAt && typeof updatedAt.toMillis === 'function'
+      ? updatedAt.toMillis()
+      : null;
+    const pending = pendingDeleteOperations.get(operationKey);
+    const operationId = pending &&
+      pending.eventVersion === eventVersion &&
+      pending.updatedAtMs === expectedUpdatedAtMs
+      ? pending.operationId
+      : crypto.randomUUID();
+    pendingDeleteOperations.set(operationKey, {
+      eventVersion: eventVersion as number,
+      updatedAtMs: expectedUpdatedAtMs,
+      operationId,
+    });
+    const removeEvent = httpsCallable(functions, 'deleteEventWithConsent');
+    await removeEvent({
+      eventId,
+      operationId,
+      expectedEventVersion: eventVersion,
+      expectedUpdatedAtMs,
+    });
+    pendingDeleteOperations.delete(operationKey);
   } catch (error) {
     console.error('Event deletion could not be confirmed:', error);
+    if (error instanceof Error && error.message.startsWith('The event version is invalid')) {
+      throw error;
+    }
     throw new Error('Could not confirm event deletion. Refresh and check the event before retrying.');
   }
 

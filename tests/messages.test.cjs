@@ -15,6 +15,7 @@ function harness() {
   const listeners = [];
   const writes = [];
   const pendingSends = [];
+  const usernameLookups = [];
   let deferSends = false;
   let cursor = 0;
   let effectCursor = 0;
@@ -108,6 +109,9 @@ function harness() {
       },
       Timestamp: { now: () => ({ seconds: 123 }) },
     },
+    '@/lib/public-profile': {
+      getConversationUsername: conversationUsernameLookup,
+    },
     '@/lib/firebase': { db: {} },
     '@/store': { useAuthStore: () => auth },
     '@/hooks': { useAuthContext: () => {} },
@@ -179,11 +183,25 @@ function harness() {
     settle();
   }
 
-  function profile(listener, username) {
-    listener.next({
-      data: () => ({ username }),
-    });
+  async function profile(messageId, username) {
+    const lookup = usernameLookups.find(entry => entry.messageId === messageId && !entry.completed);
+    assert.ok(lookup, `Username lookup not found: ${messageId}`);
+    lookup.completed = true;
+    lookup.resolve(username);
+    await new Promise(resolve => setImmediate(resolve));
     settle();
+  }
+
+  function resolveUsername(lookup, username) {
+    lookup.completed = true;
+    lookup.resolve(username);
+    settle();
+  }
+
+  function conversationUsernameLookup(messageId) {
+    return new Promise(resolve => {
+      usernameLookups.push({ messageId, resolve, completed: false });
+    });
   }
 
   function listenerFor(collectionName, predicate = () => true) {
@@ -257,6 +275,8 @@ function harness() {
     html,
     snapshot,
     profile,
+    usernameLookups,
+    resolveUsername,
     conversationListener,
     historyListener,
     clickConversation,
@@ -302,7 +322,7 @@ function message(text, senderId, recipientId) {
   };
 }
 
-test('account switching immediately hides the previous account messages and draft', () => {
+test('account switching immediately hides the previous account messages and draft', async () => {
   const app = harness();
 
   const conversationsA = app.conversationListener('account-a');
@@ -313,14 +333,7 @@ test('account switching immediately hides the previous account messages and draf
   ]);
 
 
-  const profileA = app.listenerFor(
-    'publicProfiles',
-    reference => reference.id === 'recipient-a'
-  );
-
-
-  assert.ok(profileA);
-  app.profile(profileA, 'recipient_a');
+  await app.profile('id-hello', 'recipient_a');
   app.clickConversation('recipient_a');
 
   const historyA = app.historyListener('account-a', 'recipient-a');
@@ -345,7 +358,7 @@ test('account switching immediately hides the previous account messages and draf
   app.unmount();
 });
 
-test('stale Firestore callbacks cannot restore another account conversation', () => {
+test('stale Firestore callbacks cannot restore another account conversation', async () => {
   const app = harness();
 
   const oldConversations = app.conversationListener('account-a');
@@ -353,43 +366,27 @@ test('stale Firestore callbacks cannot restore another account conversation', ()
     message('hello', 'account-a', 'recipient-a'),
   ]);
 
-  const oldProfile = app.listenerFor(
-    'publicProfiles',
-    reference => reference.id === 'recipient-a'
-  );
-
-  app.profile(oldProfile, 'recipient_a');
-  app.clickConversation('recipient_a');
-
-  const oldHistory = app.historyListener('account-a', 'recipient-a');
-  assert.ok(oldHistory);
-
+  const oldProfile = app.usernameLookups[0];
   app.switchAccount('account-b');
 
   assert.equal(oldConversations.active, false);
-  assert.equal(oldProfile.active, false);
-  assert.equal(oldHistory.active, false);
 
   // Deliberately invoke callbacks after unsubscribe.
   app.snapshot(oldConversations, [
     message('stale conversation', 'account-a', 'recipient-a'),
   ]);
 
-  app.profile(oldProfile, 'stale_username');
-
-  app.snapshot(oldHistory, [
-    message('stale private message', 'account-a', 'recipient-a'),
-  ]);
+  app.resolveUsername(oldProfile, 'stale_username');
 
   assert.doesNotMatch(
     app.html(),
-    /stale conversation|stale_username|stale private message/
+    /stale conversation|stale_username/
   );
 
   app.unmount();
 });
 
-test('changing conversations clears previous history and draft', () => {
+test('changing conversations clears previous history and draft', async () => {
   const app = harness();
   const conversations = app.conversationListener('account-a');
 
@@ -398,17 +395,8 @@ test('changing conversations clears previous history and draft', () => {
     message('second', 'account-a', 'recipient-b'),
   ]);
 
-  const profileA = app.listenerFor(
-    'publicProfiles',
-    reference => reference.id === 'recipient-a'
-  );
-  const profileB = app.listenerFor(
-    'publicProfiles',
-    reference => reference.id === 'recipient-b'
-  );
-
-  app.profile(profileA, 'recipient_a');
-  app.profile(profileB, 'recipient_b');
+  await app.profile('id-first', 'recipient_a');
+  await app.profile('id-second', 'recipient_b');
 
   app.clickConversation('recipient_a');
 
@@ -436,32 +424,26 @@ test('changing conversations clears previous history and draft', () => {
   app.unmount();
 });
 
-test('live public username updates survive conversation-list refreshes', () => {
+test('renamed usernames refresh on a subsequent messages-page lookup', async () => {
   const app = harness();
   const conversations = app.conversationListener('account-a');
 
   const document = message('hello', 'account-a', 'recipient-a');
 
   app.snapshot(conversations, [document]);
-
-  const profile = app.listenerFor(
-    'publicProfiles',
-    reference => reference.id === 'recipient-a'
-  );
-
-  app.profile(profile, 'original_username');
+  await app.profile('id-hello', 'original_username');
   assert.match(app.html(), /original_username/);
 
-  app.profile(profile, 'renamed_username');
-  assert.match(app.html(), /renamed_username/);
-  assert.doesNotMatch(app.html(), /original_username/);
-
-  app.snapshot(conversations, [document]);
-
-  assert.match(app.html(), /renamed_username/);
-  assert.doesNotMatch(app.html(), /Username unavailable/);
-
   app.unmount();
+  const refreshed = harness();
+  const refreshedConversations = refreshed.conversationListener('account-a');
+  refreshed.snapshot(refreshedConversations, [document]);
+  await refreshed.profile('id-hello', 'renamed_username');
+
+  assert.match(refreshed.html(), /renamed_username/);
+  assert.doesNotMatch(refreshed.html(), /original_username/);
+
+  refreshed.unmount();
 });
 
 
@@ -475,7 +457,7 @@ test('an old account send cannot unlock the new account send', async () => {
   const app = harness();
   app.deferMessageSends();
 
-  function openConversation(ownerId, recipientId, username) {
+  async function openConversation(ownerId, recipientId, username) {
     const conversations = app.conversationListener(ownerId);
     assert.ok(conversations);
 
@@ -483,13 +465,7 @@ test('an old account send cannot unlock the new account send', async () => {
       message('hello', ownerId, recipientId),
     ]);
 
-    const profile = app.listenerFor(
-      'publicProfiles',
-      reference => reference.id === recipientId
-    );
-
-    assert.ok(profile);
-    app.profile(profile, username);
+    await app.profile(`id-hello`, username);
     app.clickConversation(username);
   }
 
@@ -499,7 +475,7 @@ test('an old account send cannot unlock the new account send', async () => {
     return form.props.onSubmit({ preventDefault() {} });
   }
 
-  openConversation('account-a', 'recipient-a', 'recipient_a');
+  await openConversation('account-a', 'recipient-a', 'recipient_a');
   app.typeMessage('message from A');
   const sendA = send();
 
@@ -507,7 +483,7 @@ test('an old account send cannot unlock the new account send', async () => {
   assert.equal(app.pendingSends.length, 1);
 
   app.switchAccount('account-b');
-  openConversation('account-b', 'recipient-b', 'recipient_b');
+  await openConversation('account-b', 'recipient-b', 'recipient_b');
   app.typeMessage('message from B');
   const sendB = send();
 

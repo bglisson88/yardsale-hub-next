@@ -1,4 +1,5 @@
 const fs = require('node:fs');
+const path = require('node:path');
 const { before, beforeEach, after, test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
@@ -23,14 +24,20 @@ const {
 } = require('firebase/firestore');
 
 let environment;
+const productionCandidate = process.env.YSH_TEST_PRODUCTION_RULES_CANDIDATE === '1';
 const startDate = Timestamp.fromDate(new Date('2026-11-10T15:00:00Z'));
 const endDate = Timestamp.fromDate(new Date('2026-11-10T18:00:00Z'));
 const createdAt = Timestamp.fromDate(new Date('2026-11-01T12:00:00Z'));
 
 before(async () => {
+  if (productionCandidate) {
+    assert.equal(process.env.FIRESTORE_EMULATOR_HOST, '127.0.0.1:8080');
+    assert.equal(process.env.GCLOUD_PROJECT, 'demo-yardsale-hub');
+  }
+  const rulesFile = productionCandidate ? 'firestore.production-candidate.rules' : 'firestore.rules';
   environment = await initializeTestEnvironment({
     projectId: 'demo-yardsale-hub',
-    firestore: { rules: fs.readFileSync('firestore.rules', 'utf8') },
+    firestore: { rules: fs.readFileSync(path.join(__dirname, '..', rulesFile), 'utf8') },
   });
 });
 
@@ -40,6 +47,30 @@ after(async () => {
 
 beforeEach(async () => {
   await environment.clearFirestore();
+  await environment.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    for (const [id, kind, displayName, aliases] of [
+      ['nederland', 'city', 'Nederland', ['Nederland, TX']],
+      ['texas', 'state', 'Texas', []],
+      ['zip', 'postalCode', '77705', []],
+      ['west-beaumont', 'area', 'West Beaumont', []],
+    ]) {
+      await setDoc(doc(db, 'generalLocations', id), {
+        kind, displayName, active: true, approvedAliases: aliases,
+        countryCode: 'US', regionCode: 'TX',
+      });
+    }
+    await setDoc(doc(db, 'generalLocationAliases', 'current'), {
+      schemaVersion: 1,
+      aliases: {
+        Nederland: 'nederland',
+        'Nederland, TX': 'nederland',
+        Texas: 'texas',
+        '77705': 'zip',
+        'West Beaumont': 'west-beaumont',
+      },
+    });
+  });
 });
 
 // Matches the Firestore document written by auth/signup/page.tsx.
@@ -254,7 +285,7 @@ test('authenticated users can create and read reviews and query by seller', asyn
   )));
 });
 
-test('review creation rejects forged identities, self reviews, invalid content and document IDs', async () => {
+test('review creation rejects forged identities, self reviews, invalid content and document IDs', { skip: productionCandidate }, async () => {
   const review = { reviewerId: 'alice', sellerId: 'seller', rating: 3, comment: 'Good' };
   const alice = database('alice');
   await assertFails(setDoc(doc(anonymousDatabase(), 'reviews', 'seller_alice'), review));
@@ -263,36 +294,90 @@ test('review creation rejects forged identities, self reviews, invalid content a
   for (const rating of [0, 6]) {
     await assertFails(setDoc(doc(alice, 'reviews', 'seller_alice'), { ...review, rating }));
   }
+  for (const rating of [1.5, '5']) {
+    await assertFails(setDoc(doc(alice, 'reviews', 'seller_alice'), { ...review, rating }));
+  }
+  for (const [field, value] of Object.entries(review)) {
+    const incompleteReview = { ...review };
+    delete incompleteReview[field];
+    await assertFails(setDoc(doc(alice, 'reviews', 'seller_alice'), incompleteReview));
+  }
+  await assertFails(setDoc(doc(alice, 'reviews', 'seller_alice'), {
+    ...review, reviewerId: '',
+  }));
+  await assertFails(setDoc(doc(alice, 'reviews', 'seller_alice'), {
+    ...review, sellerId: '',
+  }));
+  await assertFails(setDoc(doc(alice, 'reviews', 'seller_alice'), {
+    ...review, comment: 123,
+  }));
   await assertFails(setDoc(doc(alice, 'reviews', 'seller_alice'), { ...review, comment: 'x'.repeat(501) }));
+  await assertFails(setDoc(doc(alice, 'reviews', 'seller_alice'), {
+    ...review, extra: 'unexpected',
+  }));
   await assertFails(setDoc(doc(alice, 'reviews', 'alice_seller'), review));
-  await assertFails(setDoc(doc(alice, 'reviews', 'seller_alice'), { reviewerId: 'alice', sellerId: 'seller' }));
 });
 
-test('reviewers can edit and delete reviews but cannot change either identity', async () => {
+test('review updates validate the full document and preserve reviewer-only permissions', { skip: productionCandidate }, async () => {
   const review = { reviewerId: 'alice', sellerId: 'seller', rating: 3, comment: 'Good' };
   await seed('reviews/seller_alice', review);
   const ref = doc(database('alice'), 'reviews', 'seller_alice');
   await assertSucceeds(updateDoc(ref, { rating: 4, comment: 'Updated' }));
+  await assertSucceeds(updateDoc(ref, { comment: 'Valid partial update' }));
+  for (const rating of [0, 6, 1.5, '5']) {
+    await assertFails(updateDoc(ref, { rating }));
+  }
+  await assertFails(updateDoc(ref, { comment: 'x'.repeat(501) }));
+  await assertFails(updateDoc(ref, { comment: 123 }));
+  await assertFails(updateDoc(ref, { extra: 'unexpected' }));
   await assertFails(updateDoc(ref, { reviewerId: 'bob' }));
   await assertFails(updateDoc(ref, { sellerId: 'bob' }));
   await assertFails(updateDoc(ref, { reviewerId: deleteField() }));
   await assertFails(updateDoc(ref, { sellerId: deleteField() }));
+  await assertFails(updateDoc(ref, { rating: deleteField() }));
+  await assertFails(updateDoc(ref, { comment: deleteField() }));
   await assertFails(setDoc(ref, { ...review, sellerId: 'bob' }));
   for (const db of [anonymousDatabase(), database('bob'), database('seller')]) {
     await assertFails(updateDoc(doc(db, 'reviews', 'seller_alice'), { rating: 5 }));
     await assertFails(deleteDoc(doc(db, 'reviews', 'seller_alice')));
   }
-  // Production does not revalidate rating or comment on update.
-  await assertSucceeds(updateDoc(ref, { rating: 6, comment: 'x'.repeat(501) }));
   await assertSucceeds(deleteDoc(ref));
 });
 
-test('legacy reviews without sellerId can be edited without changing identity fields', async () => {
+test('legacy reviews allow only bounded comment updates without adding fields or identities', { skip: productionCandidate }, async () => {
   await seed('reviews/legacy', { reviewerId: 'alice', comment: 'Old' });
   const ref = doc(database('alice'), 'reviews', 'legacy');
   await assertSucceeds(updateDoc(ref, { comment: 'Updated' }));
   await assertFails(updateDoc(ref, { sellerId: 'seller' }));
+  await assertFails(updateDoc(ref, { reviewerId: 'bob' }));
+  await assertFails(updateDoc(ref, { extra: 'unexpected' }));
+  await assertFails(updateDoc(ref, { comment: 'x'.repeat(501) }));
   await assertSucceeds(deleteDoc(ref));
+});
+
+test('production preserves review permissions rather than adopting the staging schema', { skip: !productionCandidate }, async () => {
+  const review = { reviewerId: 'alice', sellerId: 'seller', rating: 1.5, comment: 'Good', extra: true };
+  const ref = doc(database('alice'), 'reviews', 'seller_alice');
+  await assertSucceeds(setDoc(ref, review));
+  await assertFails(setDoc(doc(database('bob'), 'reviews', 'seller_alice'), review));
+  await assertSucceeds(updateDoc(ref, { extra: 'still allowed in production' }));
+  await assertFails(updateDoc(ref, { sellerId: 'bob' }));
+  await assertFails(updateDoc(doc(database('bob'), 'reviews', 'seller_alice'), { comment: 'Changed' }));
+  await assertFails(getDoc(doc(anonymousDatabase(), 'reviews', 'seller_alice')));
+  await assertSucceeds(deleteDoc(ref));
+});
+
+test('production preserves the baseline catch-all and keeps rate-limit records server-only', { skip: !productionCandidate }, async () => {
+  for (const record of ['publicProfiles/alice', 'usernameRateLimits/alice/operations/register']) {
+    await seed(record, { test: true });
+    for (const db of [anonymousDatabase(), database('alice')]) {
+      const ref = doc(db, record);
+      await assertFails(getDoc(ref));
+      await assertFails(getDocs(collection(db, record.slice(0, record.lastIndexOf('/')))));
+      await assertFails(updateDoc(ref, { test: false }));
+      await assertFails(deleteDoc(ref));
+    }
+  }
 });
 
 test('sender creates an application message and both participants can read and query it', async () => {
@@ -363,57 +448,53 @@ test('legacy messages remain participant-readable but missing read state blocks 
   await assertSucceeds(updateDoc(doc(database('bob'), 'messages', 'legacy-with-read'), { read: true }));
 });
 
-test('exact private records cannot be deleted independently or by another user', async () => {
-  const db = database('alice');
-  const eventRef = doc(db, 'yardSaleEvents', 'exact-delete');
-  const privateRef = doc(db, 'eventPrivate', 'exact-delete');
-  const batch = writeBatch(db);
-  batch.set(eventRef, publicEvent('alice', { locationVisibility: 'exact' }));
-  batch.set(privateRef, { userId: 'alice', address: '12 Main Street' });
-  await assertSucceeds(batch.commit());
-  await assertFails(deleteDoc(privateRef));
-  await assertFails(deleteDoc(doc(database('bob'), 'eventPrivate', 'exact-delete')));
-  await assertFails(deleteDoc(doc(anonymousDatabase(), 'eventPrivate', 'exact-delete')));
-  await assertFails(updateDoc(
-    doc(database('bob'), 'eventPrivate', 'exact-delete'),
-    { address: '99 Other Street' }
-  ));
-
-  await assertSucceeds(updateDoc(privateRef, {
-    address: '99 Other Street',
+test('exact addresses require active server consent and cannot be changed directly', async () => {
+  await seed('yardSaleEvents/exact-delete', publicEvent('alice', {
+    locationVisibility: 'exact',
+    eventVersion: 1,
   }));
+  await seed('eventPrivate/exact-delete', {
+    userId: 'alice',
+    address: '12 Main Street',
+    addressRevision: 'revision-1',
+  });
+  await seed('eventAddressConsent/exact-delete', {
+    organizerUid: 'alice',
+    consentVersion: 'exact-address-v1',
+    addressRevision: 'revision-1',
+    grantedAt: createdAt,
+    operationId: 'server-operation-1',
+  });
 
+  const privateRef = doc(database('alice'), 'eventPrivate', 'exact-delete');
+  assert.equal((await assertSucceeds(getDoc(privateRef))).data().address, '12 Main Street');
   assert.equal(
-    (await getDoc(privateRef)).data().address,
-    '99 Other Street'
+    (await assertSucceeds(getDoc(doc(anonymousDatabase(), 'eventPrivate', 'exact-delete'))))
+      .data().address,
+    '12 Main Street',
   );
-  await assertSucceeds(updateDoc(eventRef, {
+  await assertFails(updateDoc(privateRef, { address: '99 Other Street' }));
+  await assertFails(deleteDoc(privateRef));
+  await assertFails(updateDoc(doc(database('alice'), 'yardSaleEvents', 'exact-delete'), {
     locationVisibility: 'general',
     updatedAt: Timestamp.now(),
   }));
+  await assertFails(deleteDoc(doc(database('alice'), 'yardSaleEvents', 'exact-delete')));
 
-  assert.equal((await getDoc(privateRef)).exists(), true);
-
-  await assertFails(
-    getDoc(doc(anonymousDatabase(), 'eventPrivate', 'exact-delete'))
-  );
-
-  await assertFails(
-    getDoc(doc(database('bob'), 'eventPrivate', 'exact-delete'))
-  );
-
-  const ownerAddress = await assertSucceeds(getDoc(privateRef));
-  assert.equal(ownerAddress.data().address, '99 Other Street');
-
-  const change = writeBatch(db);
-  change.update(eventRef, {
-    locationVisibility: 'general', address: deleteField(),
-    latitude: deleteField(), longitude: deleteField(), updatedAt: Timestamp.now(),
-  });
-  change.delete(privateRef);
-  await assertSucceeds(change.commit());
-  assert.equal((await getDoc(privateRef)).exists(), false);
-  assert.equal((await getDoc(eventRef)).data().locationVisibility, 'general');
+  for (const context of [database('alice'), anonymousDatabase()]) {
+    await assertFails(getDoc(doc(context, 'eventAddressConsent', 'exact-delete')));
+    await assertFails(getDocs(collection(context, 'eventAddressConsent')));
+    await assertFails(setDoc(doc(context, 'eventAddressConsent', 'forged'), {
+      organizerUid: 'alice',
+    }));
+    await assertFails(getDoc(doc(
+      context,
+      'eventAddressConsent',
+      'exact-delete',
+      'history',
+      'server-operation-1',
+    )));
+  }
 });
 
 test('private records can be deleted with their public event in one batch', async () => {
@@ -421,7 +502,7 @@ test('private records can be deleted with their public event in one batch', asyn
   const eventRef = doc(db, 'yardSaleEvents', 'delete-both');
   const privateRef = doc(db, 'eventPrivate', 'delete-both');
   const create = writeBatch(db);
-  create.set(eventRef, publicEvent('alice', { locationVisibility: 'exact' }));
+  create.set(eventRef, publicEvent('alice'));
   create.set(privateRef, { userId: 'alice', address: '12 Main Street' });
   await assertSucceeds(create.commit());
   const remove = writeBatch(db);
@@ -457,27 +538,43 @@ function publicEvent(userId, overrides = {}) {
   };
 }
 
+function publicEventProjection(overrides = {}) {
+  return {
+    schemaVersion: 1,
+    title: 'Neighborhood Sale',
+    description: 'Saturday sale',
+    location: 'Nederland',
+    locationId: 'nederland',
+    locationVisibility: 'general',
+    startDate,
+    endDate,
+    photoURL: null,
+    createdAt,
+    updatedAt: createdAt,
+    itemCount: 0,
+    ...overrides,
+  };
+}
+
 async function seed(path, data) {
   await environment.withSecurityRulesDisabled(async context => {
     await setDoc(doc(context.firestore(), path), data);
   });
 }
 
-test('general event creates allow public document reads but deny public collection browsing', async () => {
+test('general event creation preserves owner source reads and denies public source reads', async () => {
   const alice = database('alice');
   const eventRef = doc(collection(alice, 'yardSaleEvents'));
-  await assertSucceeds(setDoc(eventRef, publicEvent('alice')));
-  const result = await getDoc(doc(anonymousDatabase(), 'yardSaleEvents', eventRef.id));
+  await assertSucceeds(setDoc(eventRef, publicEvent('alice', { locationId: 'nederland' })));
+  const result = await assertSucceeds(getDoc(eventRef));
   assert.equal(result.data().locationVisibility, 'general');
   assert.equal('address' in result.data(), false);
   assert.equal('latitude' in result.data(), false);
   assert.equal('longitude' in result.data(), false);
 
-  // Public collection browsing remains disabled until a safe discovery mechanism is implemented.
-  await assertFails(getDocs(query(
-    collection(anonymousDatabase(), 'yardSaleEvents'),
-    where('startDate', '>=', Timestamp.fromMillis(0)),
-  )));
+  await assertFails(getDoc(doc(anonymousDatabase(), 'yardSaleEvents', eventRef.id)));
+  await assertFails(getDoc(doc(database('bob'), 'yardSaleEvents', eventRef.id)));
+  await assertFails(getDocs(collection(anonymousDatabase(), 'yardSaleEvents')));
   const ownerEvents = await assertSucceeds(getDocs(query(
     collection(alice, 'yardSaleEvents'),
     where('userId', '==', 'alice'),
@@ -485,7 +582,68 @@ test('general event creates allow public document reads but deny public collecti
   assert.deepEqual(ownerEvents.docs.map(event => event.id), [eventRef.id]);
 });
 
-test('general event can retain a private address in an atomic batch', async () => {
+test('legacy street-address-shaped locations are owner-only while sanitized public detail remains readable', async () => {
+  await seed('yardSaleEvents/legacy-location', publicEvent('alice', { location: '12 Main Street' }));
+  await seed('yardSaleEvents/safe-location', publicEvent('alice', { locationId: 'nederland' }));
+  await seed('publicYardSaleEvents/safe-location', publicEventProjection());
+
+  const anonymous = anonymousDatabase();
+  await assertFails(getDoc(doc(anonymous, 'yardSaleEvents', 'legacy-location')));
+  await assertFails(getDoc(doc(database('bob'), 'yardSaleEvents', 'legacy-location')));
+  await assertFails(getDoc(doc(anonymous, 'publicYardSaleEvents', 'legacy-location')));
+  const owner = await assertSucceeds(getDoc(doc(database('alice'), 'yardSaleEvents', 'legacy-location')));
+  assert.equal(owner.data().location, '12 Main Street');
+  const detail = await assertSucceeds(getDoc(doc(anonymous, 'publicYardSaleEvents', 'safe-location')));
+  assert.equal(detail.data().location, publicEventProjection().location);
+  assert.equal(Object.hasOwn(detail.data(), 'address'), false);
+  assert.equal(Object.hasOwn(detail.data(), 'userId'), false);
+});
+
+test('anonymous projection list trusts server-written documents while get validates schema and client writes fail', async () => {
+  await seed('yardSaleEvents/legacy-private', {
+    ...publicEvent('alice'),
+    address: '12 Main Street',
+    latitude: 29.99,
+    longitude: -94.01,
+    privateNote: 'Do not expose',
+  });
+  await seed('publicYardSaleEvents/safe-event', publicEventProjection());
+  await seed('publicYardSaleEvents/malformed-projection', {
+    ...publicEventProjection(),
+    address: '12 Main Street',
+  });
+  await seed('publicYardSaleEvents/unsupported-version', {
+    ...publicEventProjection(),
+    schemaVersion: 2,
+  });
+
+  const anonymous = anonymousDatabase();
+  const publicEvents = await assertSucceeds(getDocs(collection(anonymous, 'publicYardSaleEvents')));
+  assert.deepEqual(publicEvents.docs.map(event => event.id).sort(), [
+    'malformed-projection', 'safe-event', 'unsupported-version',
+  ]);
+  assert.deepEqual(Object.keys(publicEvents.docs.find(event => event.id === 'safe-event').data()).sort(), [
+    'createdAt', 'description', 'endDate', 'itemCount', 'location', 'locationId',
+    'locationVisibility', 'photoURL', 'schemaVersion', 'startDate', 'title', 'updatedAt',
+  ].sort());
+  assert.equal(publicEvents.docs.find(event => event.id === 'malformed-projection').data().address, '12 Main Street');
+  await assertFails(getDoc(doc(anonymous, 'publicYardSaleEvents', 'malformed-projection')));
+  await assertFails(getDoc(doc(anonymous, 'publicYardSaleEvents', 'unsupported-version')));
+
+  for (const db of [anonymous, database('alice')]) {
+    await assertFails(setDoc(
+      doc(db, 'publicYardSaleEvents', 'forged'),
+      publicEventProjection(),
+    ));
+    await assertFails(updateDoc(
+      doc(db, 'publicYardSaleEvents', 'safe-event'),
+      { title: 'Changed by client' },
+    ));
+    await assertFails(deleteDoc(doc(db, 'publicYardSaleEvents', 'safe-event')));
+  }
+});
+
+test('deployed legacy general-event create keeps an optional address private', async () => {
   const alice = database('alice');
   const eventRef = doc(collection(alice, 'yardSaleEvents'));
   const privateRef = doc(alice, 'eventPrivate', eventRef.id);
@@ -494,8 +652,8 @@ test('general event can retain a private address in an atomic batch', async () =
   batch.set(privateRef, { userId: 'alice', address: '12 Main Street' });
   await assertSucceeds(batch.commit());
 
-  assert.equal((await getDoc(doc(anonymousDatabase(), 'yardSaleEvents', eventRef.id)))
-    .data().address, undefined);
+  assert.equal((await assertSucceeds(getDoc(eventRef))).data().address, undefined);
+  await assertFails(getDoc(doc(anonymousDatabase(), 'yardSaleEvents', eventRef.id)));
   assert.equal((await getDoc(privateRef)).data().address, '12 Main Street');
   await assertFails(getDoc(doc(database('bob'), 'eventPrivate', eventRef.id)));
   await assertFails(getDoc(doc(anonymousDatabase(), 'eventPrivate', eventRef.id)));
@@ -508,38 +666,290 @@ test('general event can retain a private address in an atomic batch', async () =
   }));
 });
 
-test('exact events store addresses privately and require atomic writes', async () => {
+test('deployed legacy general-event edit payload remains valid without eventVersion', async () => {
+  const alice = database('alice');
+  const eventRef = doc(alice, 'yardSaleEvents', 'legacy-general');
+  const privateRef = doc(alice, 'eventPrivate', 'legacy-general');
+  await assertSucceeds(setDoc(eventRef, publicEvent('alice')));
+  const batch = writeBatch(alice);
+  batch.update(eventRef, {
+    ...publicEvent('alice', {
+      title: 'Updated legacy sale',
+      updatedAt: Timestamp.now(),
+    }),
+    address: deleteField(),
+    latitude: deleteField(),
+    longitude: deleteField(),
+  });
+  batch.set(privateRef, { userId: 'alice', address: '12 Main Street' });
+  await assertSucceeds(batch.commit());
+
+  const ownerEventSnapshot = await assertSucceeds(getDoc(eventRef));
+  assert.equal(ownerEventSnapshot.data().title, 'Updated legacy sale');
+  for (const field of ['address', 'latitude', 'longitude', 'eventVersion']) {
+    assert.equal(Object.hasOwn(ownerEventSnapshot.data(), field), false);
+  }
+  await assertFails(getDoc(doc(anonymousDatabase(), 'yardSaleEvents', 'legacy-general')));
+  assert.equal((await assertSucceeds(getDoc(privateRef))).data().address, '12 Main Street');
+  await assertFails(getDoc(doc(anonymousDatabase(), 'eventPrivate', 'legacy-general')));
+
+  const changeLocation = writeBatch(alice);
+  changeLocation.update(eventRef, { location: 'Texas', updatedAt: Timestamp.now() });
+  changeLocation.set(privateRef, { userId: 'alice', address: '99 Other Street' });
+  await assertSucceeds(changeLocation.commit());
+  assert.equal((await getDoc(eventRef)).data().location, 'Texas');
+  assert.equal((await getDoc(privateRef)).data().address, '99 Other Street');
+});
+
+test('legacy edits of canonical events preserve the matching ID or fail atomically', async () => {
+  const alice = database('alice');
+  const eventRef = doc(alice, 'yardSaleEvents', 'canonical-legacy-edit');
+  const privateRef = doc(alice, 'eventPrivate', 'canonical-legacy-edit');
+  await assertSucceeds(setDoc(eventRef, publicEvent('alice', { locationId: 'nederland' })));
+
+  const unchanged = writeBatch(alice);
+  unchanged.update(eventRef, {
+    ...publicEvent('alice', { title: 'Edited by old client', updatedAt: Timestamp.now() }),
+    address: deleteField(), latitude: deleteField(), longitude: deleteField(),
+  });
+  unchanged.set(privateRef, { userId: 'alice', address: '12 Main Street' });
+  await assertSucceeds(unchanged.commit());
+
+  const changed = writeBatch(alice);
+  changed.update(eventRef, { location: 'Texas', updatedAt: Timestamp.now() });
+  changed.set(privateRef, { userId: 'alice', address: '99 Other Street' });
+  await assertFails(changed.commit());
+  assert.equal((await getDoc(eventRef)).data().location, 'Nederland');
+  assert.equal((await getDoc(eventRef)).data().locationId, 'nederland');
+  assert.equal((await getDoc(privateRef)).data().address, '12 Main Street');
+  await assertFails(getDoc(doc(anonymousDatabase(), 'eventPrivate', 'canonical-legacy-edit')));
+
+  const canonical = writeBatch(alice);
+  canonical.update(eventRef, { locationId: 'texas', location: 'Texas', updatedAt: Timestamp.now() });
+  canonical.set(privateRef, { userId: 'alice', address: '99 Other Street' });
+  await assertSucceeds(canonical.commit());
+  assert.equal((await getDoc(eventRef)).data().locationId, 'texas');
+  assert.equal((await getDoc(privateRef)).data().address, '99 Other Street');
+});
+
+test('public event schema preserves city, ZIP-code, and broad-area locations', async () => {
+  const alice = database('alice');
+  for (const [id, location] of [
+    ['city', 'Nederland'],
+    ['state', 'Texas'],
+    ['zip', '77705'],
+    ['area', 'West Beaumont'],
+  ]) {
+    await assertSucceeds(setDoc(
+      doc(alice, 'yardSaleEvents', `general-${id}`),
+      publicEvent('alice', { location }),
+    ));
+  }
+  await assertFails(getDocs(collection(anonymousDatabase(), 'yardSaleEvents')));
+  const ownerEvents = await assertSucceeds(getDocs(query(
+    collection(alice, 'yardSaleEvents'),
+    where('userId', '==', 'alice'),
+  )));
+  assert.deepEqual(
+    ownerEvents.docs.map(event => event.data().location).sort(),
+    ['77705', 'Nederland', 'Texas', 'West Beaumont'].sort(),
+  );
+});
+
+test('canonical event locations require an active matching trusted catalog record on create and update', async () => {
+  const alice = database('alice');
+  for (const [id, location] of [
+    ['nederland', 'Nederland'],
+    ['texas', 'Texas'],
+    ['zip', '77705'],
+    ['west-beaumont', 'West Beaumont'],
+  ]) {
+    await assertSucceeds(setDoc(
+      doc(alice, 'yardSaleEvents', `canonical-${id}`),
+      publicEvent('alice', { locationId: id, location }),
+    ));
+  }
+  await seed('generalLocations/inactive', {
+    kind: 'city', displayName: 'Inactive', active: false, approvedAliases: [],
+    countryCode: 'US', regionCode: 'TX',
+  });
+  await seed('generalLocations/malformed', {
+    kind: 'street', displayName: '12 Main Street', active: true, approvedAliases: [],
+    countryCode: 'US', regionCode: 'TX',
+  });
+  const ref = doc(alice, 'yardSaleEvents', 'canonical-update');
+  await assertSucceeds(setDoc(ref, publicEvent('alice', { locationId: 'nederland' })));
+  const invalid = [
+    { locationId: 'nederland', location: '12 Main Street' },
+    { locationId: 'missing', location: 'Nederland' },
+    { locationId: '../users', location: 'Nederland' },
+    { locationId: null, location: 'Nederland' },
+    { locationId: 'inactive', location: 'Inactive' },
+    { locationId: 'malformed', location: '12 Main Street' },
+    { locationId: 'nederland', location: 'Nederland, TX' },
+  ];
+  for (const [index, fields] of invalid.entries()) {
+    await assertFails(setDoc(
+      doc(alice, 'yardSaleEvents', `canonical-invalid-${index}`),
+      publicEvent('alice', fields),
+    ));
+    await assertFails(updateDoc(ref, fields));
+  }
+  await assertSucceeds(updateDoc(ref, { locationId: 'zip', location: '77705' }));
+});
+
+test('legacy alias writes require the index and independently approved active catalog display', async () => {
+  const alice = database('alice');
+  const ref = doc(alice, 'yardSaleEvents', 'legacy-alias');
+  await assertSucceeds(setDoc(ref, publicEvent('alice', { location: 'Nederland, TX' })));
+  await assertFails(updateDoc(ref, { location: '12 Main Street' }));
+  await seed('generalLocationAliases/current', {
+    schemaVersion: 1,
+    aliases: { '12 Main Street': 'nederland', 'Nederland, TX': 'nederland' },
+  });
+  await assertFails(setDoc(
+    doc(alice, 'yardSaleEvents', 'injected-alias'),
+    publicEvent('alice', { location: '12 Main Street' }),
+  ));
+  await assertFails(updateDoc(ref, { location: '12 Main Street' }));
+  await seed('generalLocations/nederland', {
+    kind: 'city', displayName: 'Nederland', active: false,
+    approvedAliases: ['Nederland, TX'], countryCode: 'US', regionCode: 'TX',
+  });
+  await assertFails(updateDoc(ref, { title: 'Inactive location' }));
+  await seed('generalLocations/nederland', {
+    kind: 'city', displayName: 'Nederland', active: true,
+    approvedAliases: ['Nederland, TX'], countryCode: 'US', regionCode: 'TX',
+  });
+  await environment.withSecurityRulesDisabled(async context => {
+    await deleteDoc(doc(context.firestore(), 'generalLocationAliases', 'current'));
+  });
+  await assertFails(updateDoc(ref, { title: 'Retired alias' }));
+  await assertFails(setDoc(doc(alice, 'yardSaleEvents', 'retired'), publicEvent('alice')));
+  await assertSucceeds(setDoc(
+    doc(alice, 'yardSaleEvents', 'after-retirement'),
+    publicEvent('alice', { locationId: 'nederland' }),
+  ));
+});
+
+test('missing or malformed alias indexes and catalog records deny legacy create and update', async () => {
+  const alice = database('alice');
+  const eventRef = doc(alice, 'yardSaleEvents', 'alias-index-update');
+  await assertSucceeds(setDoc(eventRef, publicEvent('alice')));
+  await seed('generalLocations/inactive-index-target', {
+    kind: 'city', displayName: 'Nederland', active: false, approvedAliases: [],
+    countryCode: 'US', regionCode: 'TX',
+  });
+  await seed('generalLocations/malformed-index-target', {
+    kind: 'city', displayName: 'Nederland', active: true, approvedAliases: 'Nederland',
+    countryCode: 'US', regionCode: 'TX',
+  });
+  const indexes = [
+    null,
+    {},
+    { schemaVersion: 1 },
+    { schemaVersion: 1, aliases: null },
+    { schemaVersion: 1, aliases: 'Nederland' },
+    { schemaVersion: 2, aliases: { Nederland: 'nederland' } },
+    { schemaVersion: 1, aliases: { Nederland: 'nederland' }, extra: true },
+    { schemaVersion: 1, aliases: {} },
+    { schemaVersion: 1, aliases: { Nederland: 42 } },
+    { schemaVersion: 1, aliases: { Nederland: '../users' } },
+    { schemaVersion: 1, aliases: { Nederland: 'missing' } },
+    { schemaVersion: 1, aliases: { Nederland: 'inactive-index-target' } },
+    { schemaVersion: 1, aliases: { Nederland: 'malformed-index-target' } },
+  ];
+  for (const [i, index] of indexes.entries()) {
+    await environment.withSecurityRulesDisabled(async context => {
+      const ref = doc(context.firestore(), 'generalLocationAliases', 'current');
+      if (index === null) await deleteDoc(ref);
+      else await setDoc(ref, index);
+    });
+    await assertFails(setDoc(
+      doc(alice, 'yardSaleEvents', `bad-index-${i}`), publicEvent('alice'),
+    ));
+    await assertFails(updateDoc(eventRef, { title: `Rejected ${i}` }));
+    if (index === null) {
+      const batch = writeBatch(alice);
+      batch.update(eventRef, { title: 'Rejected batch' });
+      batch.set(doc(alice, 'eventPrivate', 'alias-index-update'), {
+        userId: 'alice', address: '12 Main Street',
+      });
+      await assertFails(batch.commit());
+      await environment.withSecurityRulesDisabled(async context => {
+        const db = context.firestore();
+        assert.equal((await getDoc(doc(db, 'yardSaleEvents', 'alias-index-update'))).data().title, 'Neighborhood Sale');
+        assert.equal((await getDoc(doc(db, 'eventPrivate', 'alias-index-update'))).exists(), false);
+      });
+    }
+  }
+});
+
+test('legacy and canonical event/private batches fit Rules access-call limits', async () => {
+  const alice = database('alice');
+  const batch = writeBatch(alice);
+  for (const [id, overrides] of [
+    ['legacy-limit', {}],
+    ['canonical-limit', { locationId: 'nederland' }],
+  ]) {
+    batch.set(doc(alice, 'yardSaleEvents', id), publicEvent('alice', overrides));
+    batch.set(doc(alice, 'eventPrivate', id), { userId: 'alice', address: '12 Main Street' });
+  }
+  await assertSucceeds(batch.commit());
+  for (const id of ['legacy-limit', 'canonical-limit']) {
+    assert.equal((await getDoc(doc(alice, 'eventPrivate', id))).data().address, '12 Main Street');
+    await assertFails(getDoc(doc(anonymousDatabase(), 'eventPrivate', id)));
+    await assertFails(getDoc(doc(database('bob'), 'eventPrivate', id)));
+  }
+});
+
+test('catalog and alias index cannot be changed by clients', async () => {
+  for (const db of [anonymousDatabase(), database('alice')]) {
+    const location = doc(db, 'generalLocations', 'nederland');
+    const index = doc(db, 'generalLocationAliases', 'current');
+    await assertSucceeds(getDoc(location));
+    await assertFails(setDoc(location, { displayName: '12 Main Street' }));
+    await assertFails(updateDoc(location, { displayName: '12 Main Street' }));
+    await assertFails(deleteDoc(location));
+    await assertFails(getDoc(index));
+    await assertFails(setDoc(index, { aliases: { '12 Main Street': 'nederland' } }));
+    await assertFails(updateDoc(index, { schemaVersion: 2 }));
+    await assertFails(deleteDoc(index));
+  }
+});
+
+test('legacy private-address batch fails atomically for unapproved public location', async () => {
+  const alice = database('alice');
+  const eventRef = doc(alice, 'yardSaleEvents', 'invalid-batch');
+  const privateRef = doc(alice, 'eventPrivate', 'invalid-batch');
+  const batch = writeBatch(alice);
+  batch.set(eventRef, publicEvent('alice', { location: '12 Main Street' }));
+  batch.set(privateRef, { userId: 'alice', address: '12 Main Street' });
+  await assertFails(batch.commit());
+  await environment.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    assert.equal((await getDoc(doc(db, 'yardSaleEvents', 'invalid-batch'))).exists(), false);
+    assert.equal((await getDoc(doc(db, 'eventPrivate', 'invalid-batch'))).exists(), false);
+  });
+});
+
+test('clients cannot create exact events or set public address fields', async () => {
   const alice = database('alice');
   const eventRef = doc(collection(alice, 'yardSaleEvents'));
   const privateRef = doc(alice, 'eventPrivate', eventRef.id);
 
+  await assertFails(setDoc(eventRef, publicEvent('alice', {
+    locationVisibility: 'exact',
+  })));
   const batch = writeBatch(alice);
   batch.set(eventRef, publicEvent('alice', {
-    locationVisibility: 'exact',
+    locationVisibility: 'general',
   }));
   batch.set(privateRef, {
     userId: 'alice',
     address: '12 Main Street',
   });
-
   await assertSucceeds(batch.commit());
-
-  const publicSnapshot = await assertSucceeds(
-    getDoc(doc(anonymousDatabase(), 'yardSaleEvents', eventRef.id))
-  );
-
-  assert.equal(publicSnapshot.data().locationVisibility, 'exact');
-  assert.equal('address' in publicSnapshot.data(), false);
-
-  const anonymousAddress = await assertSucceeds(
-    getDoc(doc(anonymousDatabase(), 'eventPrivate', eventRef.id))
-  );
-
-  assert.equal(anonymousAddress.data().address, '12 Main Street');
-
-  await assertSucceeds(
-    getDoc(doc(database('bob'), 'eventPrivate', eventRef.id))
-  );
 
   await assertFails(
     setDoc(doc(collection(alice, 'yardSaleEvents')),
@@ -564,19 +974,109 @@ test('exact events store addresses privately and require atomic writes', async (
   await assertFails(invalidBatch.commit());
 });
 
-test('exact visibility requires an address and a private record', async () => {
+test('public exact-address access requires a matching server consent revision', async () => {
+  await seed('yardSaleEvents/revision-match', publicEvent('alice', {
+    locationVisibility: 'exact',
+    locationId: 'nederland',
+    eventVersion: 1,
+  }));
+  await seed('publicYardSaleEvents/revision-match', publicEventProjection({
+    locationVisibility: 'exact',
+  }));
+  await seed('eventPrivate/revision-match', {
+    userId: 'alice',
+    address: '12 Main Street',
+    addressRevision: 'revision-1',
+  });
+  const anonymous = anonymousDatabase();
+  const privateRef = doc(anonymous, 'eventPrivate', 'revision-match');
+  const detailRef = doc(anonymous, 'publicYardSaleEvents', 'revision-match');
+  await assertFails(getDoc(doc(anonymous, 'yardSaleEvents', 'revision-match')));
+  assert.equal((await assertSucceeds(getDoc(detailRef))).data().locationVisibility, 'exact');
+  await assertFails(getDoc(privateRef));
+  await seed('eventAddressConsent/revision-match', {
+    organizerUid: 'alice',
+    consentVersion: 'exact-address-v1',
+    addressRevision: 'revision-1',
+    grantedAt: createdAt,
+    operationId: 'server-operation-1',
+  });
+  assert.equal((await assertSucceeds(getDoc(privateRef))).data().address, '12 Main Street');
+
+  if (productionCandidate) {
+    await seed('eventPrivate/revision-match', {
+      userId: 'alice',
+      address: '12 Main Street',
+      addressRevision: 'revision-1',
+      latitude: 30,
+    });
+    await assertFails(getDoc(privateRef));
+    await assertSucceeds(getDoc(doc(database('alice'), 'eventPrivate', 'revision-match')));
+    await seed('eventPrivate/revision-match', {
+      userId: 'alice',
+      address: '12 Main Street',
+      addressRevision: 'revision-1',
+    });
+  }
+
+  await seed('eventAddressConsent/revision-match', {
+    organizerUid: 'alice',
+    consentVersion: 'exact-address-v1',
+    addressRevision: 'stale-revision',
+    grantedAt: createdAt,
+    operationId: 'server-operation-2',
+  });
+  await assertFails(getDoc(privateRef));
+  assert.equal((await assertSucceeds(getDoc(detailRef))).data().address, undefined);
+
   const alice = database('alice');
   await assertFails(setDoc(
     doc(collection(alice, 'yardSaleEvents')),
     publicEvent('alice', {
       locationVisibility: 'exact',
-      address: '12 Main Street',
     }),
   ));
-  await assertFails(setDoc(
-    doc(collection(alice, 'yardSaleEvents')),
-    publicEvent('alice', { locationVisibility: 'exact' }),
-  ));
+  await assertFails(setDoc(doc(alice, 'eventAddressConsent', 'forged'), {
+    organizerUid: 'alice',
+    consentVersion: 'exact-address-v1',
+  }));
+});
+
+test('callable-shaped general addresses remain private through exact consent transitions', async () => {
+  const eventPath = 'yardSaleEvents/callable-transitions';
+  const privatePath = 'eventPrivate/callable-transitions';
+  const markerPath = 'eventAddressConsent/callable-transitions';
+  const anonymousRef = doc(anonymousDatabase(), privatePath);
+  const ownerRef = doc(database('alice'), privatePath);
+  const privateRecord = { userId: 'alice', address: '12 Main Street' };
+  await seed(eventPath, publicEvent('alice', { eventVersion: 1 }));
+  await seed(privatePath, privateRecord);
+  await assertFails(getDoc(anonymousRef));
+  assert.equal((await assertSucceeds(getDoc(ownerRef))).data().address, privateRecord.address);
+
+  await seed(eventPath, publicEvent('alice', {
+    locationVisibility: 'exact', eventVersion: 2,
+  }));
+  await seed(privatePath, { ...privateRecord, addressRevision: 'revision-2' });
+  await assertFails(getDoc(anonymousRef));
+  const marker = {
+    organizerUid: 'alice', consentVersion: 'exact-address-v1',
+    addressRevision: 'revision-2', grantedAt: createdAt, operationId: 'operation-2',
+  };
+  await seed(markerPath, { ...marker, consentVersion: 'unsupported' });
+  await assertFails(getDoc(anonymousRef));
+  await seed(markerPath, marker);
+  await assertSucceeds(getDoc(anonymousRef));
+
+  // Even a leftover marker must not publish a downgraded general address.
+  await seed(eventPath, publicEvent('alice', { eventVersion: 3 }));
+  await assertFails(getDoc(anonymousRef));
+  await environment.withSecurityRulesDisabled(async context => {
+    await deleteDoc(doc(context.firestore(), markerPath));
+  });
+  await seed(privatePath, privateRecord);
+  await assertFails(getDoc(anonymousRef));
+  assert.equal((await assertSucceeds(getDoc(ownerRef))).data().address, privateRecord.address);
 });
 
 test('only the event owner may create or update an event', async () => {
@@ -601,49 +1101,57 @@ test('only the event owner may create or update an event', async () => {
   }));
 });
 
-test('changing exact visibility to general removes published address atomically', async () => {
+test('direct updates cannot transition exact events or alter server-managed versions', async () => {
   const alice = database('alice');
   const eventRef = doc(alice, 'yardSaleEvents', 'visibility-change');
-  const privateRef = doc(alice, 'eventPrivate', 'visibility-change');
   await seed('yardSaleEvents/visibility-change', publicEvent('alice', {
     locationVisibility: 'exact',
-    address: '12 Main Street',
-    latitude: 29.99,
-    longitude: -94.01,
+    eventVersion: 4,
   }));
-  await seed('eventPrivate/visibility-change', {
-    userId: 'alice',
-    address: '12 Main Street',
-  });
-
-  const change = writeBatch(alice);
-  change.update(eventRef, {
+  await assertFails(updateDoc(eventRef, {
     locationVisibility: 'general',
     updatedAt: Timestamp.now(),
-    address: deleteField(),
-    latitude: deleteField(),
-    longitude: deleteField(),
-  });
-  await assertSucceeds(change.commit());
+  }));
+  await assertFails(updateDoc(eventRef, {
+    eventVersion: 5,
+    updatedAt: Timestamp.now(),
+  }));
+  await assertFails(updateDoc(eventRef, {
+    title: 'Older client changed the event',
+    updatedAt: Timestamp.now(),
+  }));
+  await assertFails(deleteDoc(eventRef));
 
-  const publicData = (await getDoc(doc(anonymousDatabase(), 'yardSaleEvents', eventRef.id))).data();
-  assert.equal(publicData.locationVisibility, 'general');
-  assert.equal('address' in publicData, false);
-  assert.equal('latitude' in publicData, false);
-  assert.equal('longitude' in publicData, false);
-  assert.equal((await getDoc(privateRef)).data().address, '12 Main Street');
+  const generalRef = doc(alice, 'yardSaleEvents', 'version-immutable');
+  await assertSucceeds(setDoc(generalRef, publicEvent('alice')));
+  await assertFails(updateDoc(generalRef, {
+    eventVersion: 1,
+    updatedAt: Timestamp.now(),
+  }));
 });
 
-test('general events reject public addresses and precise coordinates', async () => {
+test('public event schema rejects prohibited location fields on create and update', async () => {
   const alice = database('alice');
-  await assertFails(setDoc(
-    doc(collection(alice, 'yardSaleEvents')),
-    publicEvent('alice', { address: '12 Main Street' }),
-  ));
-  await assertFails(setDoc(
-    doc(collection(alice, 'yardSaleEvents')),
-    publicEvent('alice', { latitude: 0, longitude: 0 }),
-  ));
+  const prohibitedFields = {
+    address: '12 Main Street',
+    streetAddress: '12 Main Street',
+    latitude: 29.99,
+    longitude: -94.01,
+    coordinates: [29.99, -94.01],
+    geoPoint: { latitude: 29.99, longitude: -94.01 },
+    locationCoordinates: { latitude: 29.99, longitude: -94.01 },
+  };
+
+  for (const [field, value] of Object.entries(prohibitedFields)) {
+    await assertFails(setDoc(
+      doc(alice, 'yardSaleEvents', `invalid-create-${field}`),
+      publicEvent('alice', { [field]: value }),
+    ));
+
+    const eventRef = doc(alice, 'yardSaleEvents', `invalid-update-${field}`);
+    await seed(`yardSaleEvents/invalid-update-${field}`, publicEvent('alice'));
+    await assertFails(updateDoc(eventRef, { [field]: value }));
+  }
 });
 
 test('invalid event time ranges are rejected by rules', async () => {
@@ -654,14 +1162,11 @@ test('invalid event time ranges are rejected by rules', async () => {
   ));
 });
 
-test('event listings require owner-filtered queries and exclude private location fields', async () => {
+test('public event listings contain only fields from the strict event schema', async () => {
   await seed('yardSaleEvents/alice-event', publicEvent('alice'));
   await seed('yardSaleEvents/bob-event', publicEvent('bob'));
 
-  await assertFails(getDocs(collection(anonymousDatabase(), 'yardSaleEvents')));
-
   const alice = database('alice');
-  await assertFails(getDocs(collection(alice, 'yardSaleEvents')));
   await assertFails(getDocs(query(
     collection(alice, 'yardSaleEvents'),
     where('userId', '==', 'bob'),
@@ -684,9 +1189,21 @@ test('event listings require owner-filtered queries and exclude private location
     where('userId', '==', 'bob'),
   )));
   assert.deepEqual(bobEvents.docs.map(event => event.id), ['bob-event']);
+  await seed('publicYardSaleEvents/alice-event', publicEventProjection());
+  await seed('publicYardSaleEvents/bob-event', publicEventProjection({
+    title: 'Another sale', locationVisibility: 'exact',
+  }));
+  const publicEvents = await assertSucceeds(getDocs(collection(anonymousDatabase(), 'publicYardSaleEvents')));
+  assert.equal(publicEvents.size, 2);
+  for (const event of publicEvents.docs) {
+    assert.equal('address' in event.data(), false);
+    assert.equal('latitude' in event.data(), false);
+    assert.equal('longitude' in event.data(), false);
+    assert.equal('userId' in event.data(), false);
+  }
 });
 
-test('legacy private fields cannot be listed anonymously but remain owner-readable', async () => {
+test('malformed legacy event documents are not publicly readable by document ID', async () => {
   await seed('yardSaleEvents/legacy', {
     ...publicEvent('alice', {
       locationVisibility: 'exact',
@@ -703,12 +1220,27 @@ test('legacy private fields cannot be listed anonymously but remain owner-readab
   assert.equal(ownerDocument.data().latitude, 29.99);
   assert.equal(ownerDocument.data().longitude, -94.01);
   assert.equal(ownerDocument.data().privateNote, 'Unexpected legacy field');
-
   await assertFails(getDocs(collection(anonymousDatabase(), 'yardSaleEvents')));
-  const ownerEvents = await assertSucceeds(getDocs(query(
-    collection(owner, 'yardSaleEvents'),
-    where('userId', '==', 'alice'),
+  assert.equal((await assertSucceeds(
+    getDocs(collection(anonymousDatabase(), 'publicYardSaleEvents')),
+  )).size, 0);
+});
+
+test('anonymous source-event gets reject inline private addresses while preserving owner access', async () => {
+  await seed('yardSaleEvents/legacy-inline-address', {
+    ...publicEvent('alice', { locationVisibility: 'exact' }),
+    address: '12 Main Street',
+  });
+
+  await assertFails(getDoc(doc(
+    anonymousDatabase(),
+    'yardSaleEvents',
+    'legacy-inline-address',
   )));
-  assert.equal(ownerEvents.size, 1);
-  assert.equal(ownerEvents.docs[0].data().address, '12 Main Street');
+  const ownerEvent = await assertSucceeds(getDoc(doc(
+    database('alice'),
+    'yardSaleEvents',
+    'legacy-inline-address',
+  )));
+  assert.equal(ownerEvent.data().address, '12 Main Street');
 });

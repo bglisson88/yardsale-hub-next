@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  collection, deleteField, doc, getDoc, writeBatch,
+  collection, deleteField, doc, endAt, getDoc, getDocs, limit, orderBy, query,
+  startAt, writeBatch,
 } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import { ref, uploadBytes, getDownloadURL, deleteObject, type StorageReference } from 'firebase/storage';
-import { auth, db, storage } from '@/lib/firebase';
+import { auth, db, functions, storage } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -24,6 +26,7 @@ interface EventFormValues {
   description: string;
   address: string;
   location: string;
+  locationId: string;
   locationVisibility: EventLocationVisibility;
   startDate: string;
   startTime: string;
@@ -31,17 +34,34 @@ interface EventFormValues {
   endTime: string;
 }
 
-const emptyForm = (location = ''): EventFormValues => ({
+const emptyForm = (): EventFormValues => ({
   title: '',
   description: '',
   address: '',
-  location,
+  location: '',
+  locationId: '',
   locationVisibility: 'general',
   startDate: '',
   startTime: '',
   endDate: '',
   endTime: '',
 });
+
+const EXACT_ADDRESS_CONSENT_VERSION = 'exact-address-v1';
+const EXACT_ADDRESS_CONSENT_TEXT =
+  "I understand that choosing to publish this event's exact address will make the address visible to everyone, including visitors who are not signed in. I confirm that I am authorized to share this address publicly.";
+
+interface PendingExactSave {
+  fingerprint: string;
+  operationId: string;
+  photoFile: File | null;
+  uploadedPhotoURL: string | null;
+}
+
+interface LocationOption {
+  id: string;
+  displayName: string;
+}
 
 function toLocalDateTime(value: Date | undefined, part: 'date' | 'time'): string {
   if (!value || Number.isNaN(value.getTime())) return '';
@@ -62,6 +82,8 @@ function asDate(value: unknown): Date | undefined {
 }
 
 export default function EventForm({ eventId }: { eventId?: string }) {
+  const [newEventRef] = useState(() => doc(collection(db, 'yardSaleEvents')));
+  const pendingExactSave = useRef<PendingExactSave | null>(null);
   const { user, loading: authLoading } = useAuthStore();
   useAuthContext();
   const [values, setValues] = useState<EventFormValues>(emptyForm());
@@ -75,6 +97,10 @@ export default function EventForm({ eventId }: { eventId?: string }) {
   const [loadedEvent, setLoadedEvent] = useState<YardSaleEvent | null>(null);
   const [privateRecordExists, setPrivateRecordExists] = useState(false);
   const [exactAddressConfirmed, setExactAddressConfirmed] = useState(false);
+  const [locationSearch, setLocationSearch] = useState('');
+  const [locationOptions, setLocationOptions] = useState<LocationOption[]>([]);
+  const [locationSearchError, setLocationSearchError] = useState('');
+  const [locationSearchLoading, setLocationSearchLoading] = useState(false);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState('');
   const [photoURL, setPhotoURL] = useState<string | null>(null);
@@ -92,10 +118,52 @@ export default function EventForm({ eventId }: { eventId?: string }) {
   }, [photoPreviewUrl]);
 
   useEffect(() => {
+    const search = locationSearch.trim();
+    if (!search) {
+      setLocationOptions([]);
+      setLocationSearchError('');
+      setLocationSearchLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLocationSearchLoading(true);
+    setLocationSearchError('');
+    const timer = setTimeout(async () => {
+      try {
+        const results = await getDocs(query(
+          collection(db, 'generalLocations'),
+          orderBy('displayName'),
+          startAt(search),
+          endAt(`${search}\uf8ff`),
+          limit(50),
+        ));
+        if (!cancelled) {
+          setLocationOptions(results.docs.flatMap(snapshot => {
+            const data = snapshot.data();
+            return data.active === true && typeof data.displayName === 'string'
+              ? [{ id: snapshot.id, displayName: data.displayName }]
+              : [];
+          }));
+        }
+      } catch {
+        if (!cancelled) {
+          setLocationOptions([]);
+          setLocationSearchError('Unable to search approved locations. Please try again.');
+        }
+      } finally {
+        if (!cancelled) setLocationSearchLoading(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [locationSearch]);
+
+  useEffect(() => {
     if (!eventId || authLoading || !user) return;
     const currentEventId = eventId;
     const currentUserId = user.id;
-    const currentUserLocation = user.location;
     let cancelled = false;
     setRecordLoading(true);
     setLoadError('');
@@ -129,7 +197,8 @@ export default function EventForm({ eventId }: { eventId?: string }) {
           title: data.title ?? '',
           description: data.description ?? '',
           address: privateData?.address ?? data.address ?? '',
-          location: data.location ?? currentUserLocation ?? '',
+          location: typeof data.location === 'string' ? data.location : '',
+          locationId: typeof data.locationId === 'string' ? data.locationId : '',
           locationVisibility: data.locationVisibility === 'exact' ? 'exact' : 'general',
           startDate: toLocalDateTime(startDate, 'date'),
           startTime: toLocalDateTime(startDate, 'time'),
@@ -152,7 +221,7 @@ export default function EventForm({ eventId }: { eventId?: string }) {
 
     void loadEvent();
     return () => { cancelled = true; };
-  }, [eventId, authLoading, user?.id]);
+  }, [eventId, authLoading, user]);
 
   const handleInputChange = (
     event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>,
@@ -195,8 +264,8 @@ export default function EventForm({ eventId }: { eventId?: string }) {
         values.startDate, values.startTime, values.endDate, values.endTime,
       );
       if (!values.title.trim()) throw new Error('Please enter a sale title.');
-      if (!(values.location.trim() || user.location.trim())) {
-        throw new Error('Please provide a city, state, or general location.');
+      if (!values.locationId || !values.location) {
+        throw new Error('Please select an approved city, state, ZIP code, or general area.');
       }
       if (values.locationVisibility === 'exact') {
         if (!values.address.trim()) throw new Error('Enter the exact sale address.');
@@ -209,6 +278,35 @@ export default function EventForm({ eventId }: { eventId?: string }) {
       return;
     }
 
+    const serverManaged = values.locationVisibility === 'exact' ||
+      loadedEvent?.locationVisibility === 'exact' ||
+      Number.isSafeInteger(loadedEvent?.eventVersion);
+    const eventDocumentId = eventId ?? newEventRef.id;
+    const expectedEventVersion = loadedEvent?.eventVersion ?? 0;
+    const expectedUpdatedAtMs = loadedEvent?.updatedAt?.getTime() ?? null;
+    const requestFingerprint = JSON.stringify({
+      userId: user.id,
+      eventId: eventDocumentId,
+      values,
+      startDateMs: dates.startDate.getTime(),
+      endDateMs: dates.endDate.getTime(),
+      expectedEventVersion,
+      expectedUpdatedAtMs,
+      photoURL,
+      photoFile: photoFile
+        ? [photoFile.name, photoFile.size, photoFile.type, photoFile.lastModified]
+        : null,
+    });
+    const pending = pendingExactSave.current;
+    if (
+      serverManaged &&
+      pending &&
+      (pending.fingerprint !== requestFingerprint || pending.photoFile !== photoFile)
+    ) {
+      toast.error('The previous save may have completed. Reload the event before changing or retrying it.');
+      return;
+    }
+
     setLoading(true);
     let uploadedPhoto: StorageReference | null = null;
     let saved = false;
@@ -216,22 +314,24 @@ export default function EventForm({ eventId }: { eventId?: string }) {
     try {
       const eventRef = eventId
         ? doc(db, 'yardSaleEvents', eventId)
-        : doc(collection(db, 'yardSaleEvents'));
+        : newEventRef;
       let nextPhotoURL = photoURL;
-      if (photoFile) {
+      if (pending?.uploadedPhotoURL) {
+        nextPhotoURL = pending.uploadedPhotoURL;
+      } else if (photoFile) {
         const uploadRef = ref(storage, `events/${user.id}/${eventRef.id}_${crypto.randomUUID()}_${photoFile.name}`);
         await uploadBytes(uploadRef, photoFile);
         uploadedPhoto = uploadRef;
         nextPhotoURL = await getDownloadURL(uploadRef);
       }
 
-      const privateRef = doc(db, 'eventPrivate', eventRef.id);
       const now = new Date();
       const publicData = buildPublicEventData({
         userId: user.id,
         title: values.title,
         description: values.description,
-        location: values.location || user.location,
+        location: values.location,
+        locationId: values.locationId,
         locationVisibility: values.locationVisibility,
         address: values.address,
         ...dates,
@@ -240,34 +340,72 @@ export default function EventForm({ eventId }: { eventId?: string }) {
         updatedAt: now,
         itemCount: loadedEvent?.itemCount ?? 0,
       });
-      const privateData = buildPrivateEventData(user.id, values.address);
-      const batch = writeBatch(db);
-
-      if (eventId) {
-        batch.update(eventRef, {
-          ...publicData,
-          address: deleteField(),
-          latitude: deleteField(),
-          longitude: deleteField(),
-        });
-      } else {
-        batch.set(eventRef, publicData);
-      }
-
-      if (privateData) {
-        batch.set(privateRef, privateData);
-      } else if (eventId && privateRecordExists) {
-        batch.delete(privateRef);
-      }
-
       commitStarted = true;
-      await batch.commit();
+
+      if (serverManaged) {
+        const saveEvent = httpsCallable(functions, 'saveEventWithConsent');
+        const operationId = pending?.operationId ?? crypto.randomUUID();
+        pendingExactSave.current = {
+          fingerprint: requestFingerprint,
+          operationId,
+          photoFile,
+          uploadedPhotoURL: photoFile ? nextPhotoURL : null,
+        };
+        await saveEvent({
+          eventId: eventRef.id,
+          operationId,
+          expectedEventVersion,
+          expectedUpdatedAtMs,
+          title: publicData.title,
+          description: publicData.description,
+          location: publicData.location,
+          locationId: publicData.locationId,
+          locationVisibility: values.locationVisibility,
+          startDateMs: dates.startDate.getTime(),
+          endDateMs: dates.endDate.getTime(),
+          photoURL: nextPhotoURL,
+          itemCount: publicData.itemCount,
+          address: values.address.trim(),
+          consentVersion: values.locationVisibility === 'exact'
+            ? EXACT_ADDRESS_CONSENT_VERSION
+            : null,
+          consentConfirmed: values.locationVisibility === 'exact' && exactAddressConfirmed,
+        });
+        pendingExactSave.current = null;
+      } else {
+        const privateRef = doc(db, 'eventPrivate', eventRef.id);
+        const privateData = buildPrivateEventData(user.id, values.address);
+        const batch = writeBatch(db);
+
+        if (eventId) {
+          batch.update(eventRef, {
+            ...publicData,
+            address: deleteField(),
+            latitude: deleteField(),
+            longitude: deleteField(),
+          });
+        } else {
+          batch.set(eventRef, publicData);
+        }
+
+        if (privateData) {
+          batch.set(privateRef, privateData);
+        } else if (eventId && privateRecordExists) {
+          batch.delete(privateRef);
+        }
+
+        await batch.commit();
+      }
       saved = true;
       toast.success(eventId ? 'Event updated successfully!' : 'Yard sale event created!');
       router.push(eventId ? `/events/${eventId}` : '/dashboard');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to save sale.');
-      if (uploadedPhoto && !saved && commitStarted) {
+      if (
+        !saved &&
+        commitStarted &&
+        (uploadedPhoto || pendingExactSave.current?.uploadedPhotoURL)
+      ) {
         toast.error('The save could not be confirmed. The uploaded photo was retained; check the event before retrying.', { duration: 10000 });
       } else if (uploadedPhoto && !saved) {
         try {
@@ -316,13 +454,15 @@ export default function EventForm({ eventId }: { eventId?: string }) {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label htmlFor="event-title" className="block text-sm font-semibold text-gray-700 mb-2">Event Title *</label>
+            <label htmlFor="event-title" className="block text-sm font-semibold text-gray-700 mb-2">Public Event Title *</label>
             <input id="event-title" name="title" type="text" required maxLength={120} value={values.title} onChange={handleInputChange} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g., Spring Garage Sale" />
+            <p className="mt-2 text-sm text-gray-600">This title is public. Do not include your street address, access codes, or private contact information.</p>
           </div>
 
           <div>
             <label htmlFor="event-description" className="block text-sm font-semibold text-gray-700 mb-2">Description</label>
             <textarea id="event-description" name="description" value={values.description} onChange={handleInputChange} rows={4} maxLength={5000} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Describe your yard sale..." />
+            <p className="mt-2 text-sm text-gray-600">Descriptions are public. Keep street addresses, gate codes, and private contact information out of this field.</p>
           </div>
 
           <fieldset className="space-y-3">
@@ -383,7 +523,7 @@ export default function EventForm({ eventId }: { eventId?: string }) {
                     onChange={event => setExactAddressConfirmed(event.target.checked)}
                     className="mt-1"
                   />
-                  <span>I understand and confirm that this exact address will be published.</span>
+                  <span>{EXACT_ADDRESS_CONSENT_TEXT}</span>
                 </label>
               </div>
             )}
@@ -393,14 +533,35 @@ export default function EventForm({ eventId }: { eventId?: string }) {
           </div>
 
           <div>
-            <label htmlFor="event-location" className="block text-sm font-semibold text-gray-700 mb-2">City or general area *</label>
-            <select id="event-location" name="location" required value={values.location} onChange={handleInputChange} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-              <option value="">Select a general location</option>
-              {[...new Set([user.location, 'Nederland', 'Groves', 'West Beaumont', 'Orange County'].filter(Boolean))].map(location => (
-                <option key={location} value={location}>{location}</option>
-              ))}
-            </select>
-            <p className="mt-2 text-sm text-gray-600">Only this broad location is shown when exact address visibility is off.</p>
+            <label htmlFor="event-location-search" className="block text-sm font-semibold text-gray-700 mb-2">City, state, ZIP code, or general area *</label>
+            <input id="event-location-search" type="search" value={locationSearch}
+              onChange={event => {
+                setLocationSearch(event.target.value);
+                setValues(previous => ({ ...previous, location: '', locationId: '' }));
+              }}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Search approved locations" />
+            <p className="mt-2 text-sm text-gray-600">Search by the beginning of the name using matching capitalization, then select an approved location.</p>
+            {locationSearchLoading && <p className="mt-2 text-sm text-gray-600">Searching locations...</p>}
+            {locationSearchError && <p role="alert" className="mt-2 text-sm text-red-700">{locationSearchError}</p>}
+            {locationOptions.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {locationOptions.map(location => (
+                  <li key={location.id}>
+                    <button type="button" className="text-blue-700 underline"
+                      onClick={() => {
+                        setValues(previous => ({ ...previous, location: location.displayName, locationId: location.id }));
+                        setLocationSearch('');
+                      }}>
+                      {location.displayName}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {values.locationId
+              ? <p className="mt-2 text-sm text-gray-700">Selected: {values.location}</p>
+              : <p className="mt-2 text-sm text-gray-600">Select an approved location before saving{values.location ? ` (previously: ${values.location})` : ''}.</p>}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

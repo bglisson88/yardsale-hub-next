@@ -1,6 +1,6 @@
 # YardSale Hub - Next.js Edition
 
-A modern, full-featured marketplace for discovering and organizing local yard sales. Built with Next.js 14, Firebase, and Tailwind CSS.
+A modern, full-featured marketplace for discovering and organizing local yard sales. Built with Next.js 15, Firebase, and Tailwind CSS.
 
 ## Features
 
@@ -16,7 +16,7 @@ A modern, full-featured marketplace for discovering and organizing local yard sa
 
 ## Tech Stack
 
-- **Frontend**: Next.js 14, React 18, TypeScript
+- **Frontend**: Next.js 15, React 19, TypeScript
 - **Styling**: Tailwind CSS
 - **Backend**: Firebase (Auth, Firestore, Storage)
 - **Deployment**: Vercel
@@ -24,11 +24,16 @@ A modern, full-featured marketplace for discovering and organizing local yard sa
 - **State Management**: Zustand
 - **Notifications**: React Hot Toast
 
+Next.js and its ESLint configuration are pinned together for reviewed upgrades.
+Sharp is pinned to a patched image-optimizer version; keep that pin when updating
+the framework. App Router page parameters are promises: server pages await them
+and client pages unwrap them with React `use`.
+
 ## Getting Started
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 22 (matches Functions and CI)
 - npm or yarn
 - Firebase project (create at https://firebase.google.com)
 
@@ -313,22 +318,30 @@ because the current secure API does not expose the previous rename timestamp.
 Listing cards open `/items/[id]`, which subscribes to the existing `items`
 document and displays its saved photos and public listing fields.
 
-The item detail page retrieves the seller's public profile from
-`publicProfiles/{sellerId}` and displays its validated public `username` to
-both guests and signed-in users. Usernames must contain 3-20 ASCII letters,
-numbers, or underscores. If the profile is missing, invalid, or unavailable,
-the page displays the generic `YardSale Hub member` fallback.
+The item detail page resolves the seller's username through the
+`getPublicUsername` callable using the public item ID. The server derives the
+seller UID from that item and returns only a validated username; it does not
+accept arbitrary UID lookups. Usernames must contain 3-20 ASCII letters,
+numbers, or underscores. If the item or profile is missing, malformed, or
+unavailable, the page displays the generic `YardSale Hub member` fallback.
+The production-candidate Rules deny direct client reads of
+`publicProfiles`; the frontend resolves usernames through the callable.
 
-The public profile lookup is independent of the listing subscription.
-The displayed username is associated with the current seller ID so a previous
-seller's username cannot appear when switching listings. Firestore listeners
-are cleaned up when the seller changes or the component unmounts.
+The shared username helper caches results for 30 seconds, deduplicates
+in-flight calls, scopes cache entries to the signed-in UID, and clears cached
+values on account changes/sign-out. The helper is also used for the signed-in
+user's own profile and message partners. A message sent by the caller is
+eligible only after the partner replies; a message received from the partner
+is itself a qualifying relationship. A successful username rename invalidates
+the local cache and refreshes the mounted Navbar. Other open pages no longer
+receive realtime profile snapshots: they see a rename the next time they
+request the username after the cache expires, such as on navigation or
+remount. Seller identity remains associated with the current item so an
+earlier seller's username is not displayed after a seller change.
 
 The page does not retrieve or display private seller email or street-address
-fields. The public profile rules allow individual profile reads but prohibit
-collection listing and direct client writes. Only the signed-in owner sees
-the Edit Listing link; the edit page and Firestore rules remain responsible
-for write authorization.
+fields. Only the signed-in owner sees the Edit Listing link; the edit page
+and Firestore rules remain responsible for write authorization.
 
 Contact seller currently shows an unavailable notice. The existing inbox
 still does not support initiating seller inquiries from this route. This

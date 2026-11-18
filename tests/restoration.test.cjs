@@ -31,7 +31,10 @@ function harness(file, initialAuth = { user: null, loading: false }) {
   let currentPath = '/';
   const listeners = new Map();
   const mediaListeners = new Map();
+  const usernameInvalidationListeners = new Set();
   const pushes = [], errors = [], constraints = [], queriedCollections = [];
+  let publicUsername = 'test_neighbor';
+  let usernameLookups = 0;
   let signOutCalls = 0, rejectSignOut = false;
   const document = {
     addEventListener: (name, listener) => listeners.set(name, listener),
@@ -68,20 +71,27 @@ function harness(file, initialAuth = { user: null, loading: false }) {
     'firebase/firestore': {
       collection: (_, name) => { queriedCollections.push(name); return name; },
       doc: (_, collectionName, id) => ({ collectionName, id }),
-      onSnapshot: (reference, onNext) => {
-        if (reference.collectionName === 'publicProfiles') {
-          onNext({
-            data: () => ({ username: 'test_neighbor' }),
-          });
-        }
-        return () => {};
-      },
+      onSnapshot: () => () => {},
       query: stub, where: (...args) => constraints.push(args), Timestamp: { now: stub },
       getDocs: async () => ({ docs: [] }),
     },
     'react-hot-toast': { __esModule: true, default: { error: message => errors.push(message) } },
     '@/lib/firebase': { auth: {}, db: {} },
-    '@/hooks': { useAuthContext: stub, useItems: () => ({ items: [] }) },
+    '@/lib/public-profile': {
+      getMyPublicUsername: async () => {
+        usernameLookups++;
+        return publicUsername;
+      },
+      subscribePublicUsernameInvalidation: listener => {
+        usernameInvalidationListeners.add(listener);
+        return () => usernameInvalidationListeners.delete(listener);
+      },
+    },
+    '@/hooks': {
+      useAuthContext: stub,
+      useItems: () => ({ items: [] }),
+      usePublicEvents: () => ({ events: [], loading: false, error: '' }),
+    },
     '@/store': { useAuthStore: () => authState },
     './Avatar': { Avatar: stub }, './Logo': { Logo: stub },
     '@/components/Logo': { Logo: stub },
@@ -121,6 +131,13 @@ function harness(file, initialAuth = { user: null, loading: false }) {
   return {
     find, render, refs, pushes, errors, constraints, queriedCollections,
     get signOutCalls() { return signOutCalls; },
+    get usernameLookups() { return usernameLookups; },
+    async invalidateUsername(nextUsername) {
+      publicUsername = nextUsername;
+      for (const listener of usernameInvalidationListeners) listener();
+      await new Promise(resolve => setImmediate(resolve));
+      render();
+    },
     rejectSignOut() { rejectSignOut = true; },
     auth(next) { authState = next; render(); render(); },
     route(next) { currentPath = next; render(); render(); },
@@ -145,6 +162,21 @@ function harness(file, initialAuth = { user: null, loading: false }) {
 const user = { id: 'test-user', displayName: 'Test Neighbor', email: 'neighbor@example.test', photoURL: null };
 const account = node => node.props?.id === 'account-navigation';
 const mobile = node => node.props?.id === 'mobile-navigation';
+
+test('Navbar refreshes its username after a local rename invalidates the cache', async () => {
+  const nav = harness('src/components/Navbar.tsx', { user, loading: false });
+  await new Promise(resolve => setImmediate(resolve));
+  nav.click('Open account menu');
+  nav.render();
+  assert.match(renderToStaticMarkup(nav.find(account)), /test_neighbor/);
+  assert.equal(nav.usernameLookups, 1);
+
+  await nav.invalidateUsername('renamed_user');
+  nav.render();
+  assert.match(renderToStaticMarkup(nav.find(account)), /renamed_user/);
+  assert.equal(nav.usernameLookups, 2);
+  nav.unmount();
+});
 
 test('Sell an Item is a single desktop/mobile action regardless of auth state', () => {
   for (const auth of [{ user: null, loading: true }, { user: null, loading: false }, { user, loading: false }]) {
@@ -261,7 +293,7 @@ test('desktop/mobile sign out closes menus and redirects only on success', async
   nav.unmount();
 });
 
-test('homepage keeps item search available without querying public events', () => {
+test('homepage enables events search while keeping item search available', () => {
   const page = harness('src/app/page.tsx');
   for (const [label, value] of [['Search items or events', ' lamp & desk '], ['Location (city or ZIP)', ' 12345 ']]) {
     page.find(node => node.props?.['aria-label'] === label).props.onChange({ target: { value } });
@@ -269,37 +301,33 @@ test('homepage keeps item search available without querying public events', () =
   }
   page.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} });
   assert.equal(page.pushes[0], '/items?search=lamp+%26+desk&location=12345');
-  assert.equal(page.queriedCollections.includes('yardSaleEvents'), false);
   assert.ok(page.find(node => node.props?.href?.startsWith('/events')));
   const eventOption = page.find(node => node.type === 'option' && node.props?.value === 'events');
-  assert.equal(eventOption.props.disabled, true);
-  const notice = page.find(node => node.props?.role === 'status');
-  assert.match(notice.props.children, /Public event browsing is temporarily unavailable while we improve privacy protections\./);
+  assert.equal(eventOption.props.disabled, undefined);
+  assert.equal(page.find(node => node.props?.children === 'Public event browsing is temporarily unavailable while we improve privacy protections.'), undefined);
 });
 
-test('events route shows temporary availability without querying events and keeps creation navigation', () => {
-  let collectionCalls = 0, queryCalls = 0;
+test('events route browses the projection and keeps event creation navigation', () => {
   const { default: Events } = load('src/app/events/page.tsx', {
-    react: {
-      ...React,
-      useState: initial => [initial, () => {}],
-      useEffect: effect => { effect(); },
+    react: React,
+    'next/navigation': {
+      useSearchParams: () => new URLSearchParams('search=sale'),
     },
-    'firebase/firestore': {
-      collection: () => { collectionCalls++; return {}; },
-      query: () => { queryCalls++; return {}; },
-      where: () => ({}),
-      Timestamp: { now: () => new Date() },
-      getDocs: async () => ({ docs: [], forEach() {} }),
-    },
-    '@/lib/firebase': { db: {} },
     'next/link': { __esModule: true, default: 'a' },
+    '@/hooks': {
+      usePublicEvents: () => ({ events: [], loading: false, error: '' }),
+    },
+    '@/components/EmptyState': {
+      EmptyState: ({ title, description }) => React.createElement('p', null, `${title}: ${description}`),
+    },
+    '@/components/EventCard': { EventCard: () => null },
+    '@/components/LoadingSpinner': { LoadingSpinner: () => null },
   });
   const html = renderToStaticMarkup(Events());
-  assert.match(html, /Public event browsing is temporarily unavailable while we improve privacy protections\./);
+  assert.match(html, /Yard Sale Events/);
+  assert.match(html, /No matching events/);
   assert.match(html, /href="\/events\/new"/);
-  assert.equal(collectionCalls, 0);
-  assert.equal(queryCalls, 0);
+  assert.match(html, /street addresses, access codes, or private contact information/);
 });
 
 test('homepage quick links use the updated taxonomy and one layout strip mount', () => {

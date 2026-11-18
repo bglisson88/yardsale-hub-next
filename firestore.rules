@@ -9,6 +9,76 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
+    // Both the catalog and alias index are populated only by reviewed,
+    // trusted administrative processes.
+    function validCatalogRecord(data) {
+      return data.keys().hasAll([
+          'kind', 'displayName', 'active', 'approvedAliases',
+          'countryCode', 'regionCode'
+        ])
+        && data.keys().hasOnly([
+          'kind', 'displayName', 'active', 'approvedAliases',
+          'countryCode', 'regionCode'
+        ])
+        && data.kind in ['city', 'state', 'postalCode', 'area']
+        && data.displayName is string
+        && data.displayName.size() > 0
+        && data.displayName.size() <= 200
+        && data.active == true
+        && data.approvedAliases is list
+        && data.countryCode is string
+        && data.countryCode.matches('^[A-Z]{2}$')
+        && data.regionCode is string
+        && data.regionCode.size() <= 32;
+    }
+
+    function catalogLocationMatches(locationId, display, legacy) {
+      let location = get(
+        /databases/$(database)/documents/generalLocations/$(locationId)
+      ).data;
+      return validCatalogRecord(location)
+        && (legacy
+          ? (location.displayName == display
+             || location.approvedAliases.hasAny([display]))
+          : location.displayName == display);
+    }
+
+    function validLocationId(locationId) {
+      return locationId is string
+        && locationId.matches('^[a-z0-9][a-z0-9_-]{0,63}$');
+    }
+
+    function validLegacyAlias(aliases, display) {
+      let locationId = aliases.get(display, null);
+      return validLocationId(locationId)
+        && catalogLocationMatches(locationId, display, true);
+    }
+
+    function validLegacyIndex(index, display) {
+      return index is map
+        && index.keys().hasAll(['schemaVersion', 'aliases'])
+        && index.keys().hasOnly(['schemaVersion', 'aliases'])
+        && index.schemaVersion == 1
+        && index.aliases is map
+        && validLegacyAlias(index.aliases, display);
+    }
+
+    function validLegacyLocation(display) {
+      let indexPath = /databases/$(database)/documents/generalLocationAliases/current;
+      return exists(indexPath)
+        && validLegacyIndex(get(indexPath).data, display);
+    }
+
+    function validWriteLocation(data) {
+      return data.location is string
+        && data.location.size() > 0
+        && data.location.size() <= 200
+        && (data.keys().hasAny(['locationId'])
+          ? (validLocationId(data.locationId)
+             && catalogLocationMatches(data.locationId, data.location, false))
+          : validLegacyLocation(data.location));
+    }
+
     function validUser(uid, data) {
       return data.keys().hasAll([
           'id', 'email', 'displayName', 'photoURL', 'location', 'bio',
@@ -73,7 +143,7 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'userId', 'title', 'description', 'location', 'locationVisibility',
           'startDate', 'endDate', 'photoURL', 'createdAt', 'updatedAt',
-          'itemCount'
+          'itemCount', 'eventVersion', 'locationId'
         ])
         && data.userId is string
         && data.title is string
@@ -83,6 +153,41 @@ service cloud.firestore {
         && data.description.size() <= 5000
         && data.location is string
         && data.location.size() > 0
+        && data.locationVisibility in ['general', 'exact']
+        && data.startDate is timestamp
+        && data.endDate is timestamp
+        && data.endDate > data.startDate
+        && (data.photoURL == null || data.photoURL is string)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && data.itemCount is int
+        && data.itemCount >= 0
+        && (!data.keys().hasAny(['eventVersion'])
+            || (data.eventVersion is int && data.eventVersion >= 0));
+    }
+
+    function validPublicYardSaleEvent(data) {
+      return data.keys().hasAll([
+          'schemaVersion', 'title', 'description', 'location', 'locationId',
+          'locationVisibility', 'startDate', 'endDate', 'photoURL',
+          'createdAt', 'updatedAt', 'itemCount'
+        ])
+        && data.keys().hasOnly([
+          'schemaVersion', 'title', 'description', 'location', 'locationId',
+          'locationVisibility', 'startDate', 'endDate', 'photoURL',
+          'createdAt', 'updatedAt', 'itemCount'
+        ])
+        && data.schemaVersion == 1
+        && data.title is string
+        && data.title.size() > 0
+        && data.title.size() <= 120
+        && data.description is string
+        && data.description.size() <= 5000
+        && data.location is string
+        && data.location.size() > 0
+        && data.location.size() <= 200
+        && data.locationId is string
+        && data.locationId.matches('^[a-z0-9][a-z0-9_-]{0,63}$')
         && data.locationVisibility in ['general', 'exact']
         && data.startDate is timestamp
         && data.endDate is timestamp
@@ -105,7 +210,30 @@ service cloud.firestore {
         && data.address.size() > 0
         && data.address.size() <= 300
         && publicEvent.userId == request.auth.uid
-        && validEvent(publicEvent);
+        && publicEvent.locationVisibility == 'general'
+        && validEvent(publicEvent)
+        && validWriteLocation(publicEvent);
+    }
+
+    function validActiveAddressConsent(eventId, event, privateEvent) {
+      let markerPath = /databases/$(database)/documents/eventAddressConsent/$(eventId);
+      let marker = get(markerPath).data;
+      return exists(markerPath)
+        && marker.keys().hasAll([
+          'organizerUid', 'consentVersion', 'addressRevision', 'grantedAt',
+          'operationId'
+        ])
+        && marker.keys().hasOnly([
+          'organizerUid', 'consentVersion', 'addressRevision', 'grantedAt',
+          'operationId'
+        ])
+        && marker.organizerUid == event.userId
+        && marker.organizerUid == privateEvent.userId
+        && marker.consentVersion == 'exact-address-v1'
+        && marker.addressRevision is string
+        && marker.addressRevision == privateEvent.addressRevision
+        && marker.grantedAt is timestamp
+        && marker.operationId is string;
     }
 
     function validMessage(data) {
@@ -187,66 +315,54 @@ service cloud.firestore {
     }
 
     match /yardSaleEvents/{eventId} {
-      allow get: if validEvent(resource.data)
-        || owns(resource.data.userId);
-      allow list: if signedIn()
-        && resource.data.userId == request.auth.uid;
+      allow get, list: if owns(resource.data.userId);
 
       allow create: if signedIn()
         && validEvent(request.resource.data)
+        && validWriteLocation(request.resource.data)
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.itemCount == 0
-        && (
-          request.resource.data.locationVisibility == 'general'
-          || (
-            request.resource.data.locationVisibility == 'exact'
-            && existsAfter(
-              /databases/$(database)/documents/eventPrivate/$(eventId)
-            )
-            && getAfter(
-              /databases/$(database)/documents/eventPrivate/$(eventId)
-            ).data.userId == request.auth.uid
-            && getAfter(
-              /databases/$(database)/documents/eventPrivate/$(eventId)
-            ).data.address is string
-            && getAfter(
-              /databases/$(database)/documents/eventPrivate/$(eventId)
-            ).data.address.size() > 0
-          )
-        );
+        && request.resource.data.locationVisibility == 'general'
+        && !request.resource.data.keys().hasAny(['eventVersion']);
 
       allow update: if signedIn()
         && resource.data.userId == request.auth.uid
+        && resource.data.locationVisibility == 'general'
+        && !resource.data.keys().hasAny(['eventVersion'])
         && validEvent(request.resource.data)
+        && validWriteLocation(request.resource.data)
         && request.resource.data.userId == resource.data.userId
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.itemCount == resource.data.itemCount
+        && request.resource.data.locationVisibility == 'general'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'title', 'description', 'location', 'locationVisibility', 'address',
-          'latitude', 'longitude', 'startDate', 'endDate', 'photoURL',
-          'updatedAt'
-        ])
-        && (
-          request.resource.data.locationVisibility == 'general'
-          || (
-            request.resource.data.locationVisibility == 'exact'
-            && existsAfter(
-              /databases/$(database)/documents/eventPrivate/$(eventId)
-            )
-            && getAfter(
-              /databases/$(database)/documents/eventPrivate/$(eventId)
-            ).data.userId == request.auth.uid
-            && getAfter(
-              /databases/$(database)/documents/eventPrivate/$(eventId)
-            ).data.address is string
-            && getAfter(
-              /databases/$(database)/documents/eventPrivate/$(eventId)
-            ).data.address.size() > 0
-          )
-        );
+          'title', 'description', 'location', 'locationId', 'startDate', 'endDate',
+          'photoURL', 'updatedAt'
+        ]);
 
       allow delete: if signedIn()
-        && resource.data.userId == request.auth.uid;
+        && resource.data.userId == request.auth.uid
+        && resource.data.locationVisibility == 'general'
+        && !exists(
+          /databases/$(database)/documents/eventAddressConsent/$(eventId)
+        );
+    }
+
+    match /publicYardSaleEvents/{eventId} {
+      allow get: if validPublicYardSaleEvent(resource.data);
+      // Broad browse queries cannot enforce a document schema or redact returned fields.
+      // Anonymous list safety depends on trusted server writers using the projection allowlist.
+      allow list: if true;
+      allow create, update, delete: if false;
+    }
+
+    match /generalLocations/{locationId} {
+      allow get, list: if true;
+      allow create, update, delete: if false;
+    }
+
+    match /generalLocationAliases/{document} {
+      allow read, write: if false;
     }
 
     match /eventPrivate/{eventId} {
@@ -269,6 +385,14 @@ service cloud.firestore {
           && resource.data.userId == get(
             /databases/$(database)/documents/yardSaleEvents/$(eventId)
           ).data.userId
+          && resource.data.address is string
+          && resource.data.address.size() > 0
+          && resource.data.addressRevision is string
+          && validActiveAddressConsent(
+            eventId,
+            get(/databases/$(database)/documents/yardSaleEvents/$(eventId)).data,
+            resource.data
+          )
         )
         || (
           signedIn()
@@ -287,10 +411,14 @@ service cloud.firestore {
 
       allow update: if signedIn()
         && resource.data.userId == request.auth.uid
+        && !resource.data.keys().hasAny(['addressRevision'])
         && validPrivateEvent(eventId, request.resource.data);
 
       allow delete: if signedIn()
         && resource.data.userId == request.auth.uid
+        && !exists(
+          /databases/$(database)/documents/eventAddressConsent/$(eventId)
+        )
         && (
           !existsAfter(
             /databases/$(database)/documents/yardSaleEvents/$(eventId)
@@ -304,6 +432,18 @@ service cloud.firestore {
             ).data.locationVisibility == 'general'
           )
         );
+    }
+
+    match /eventAddressConsent/{eventId} {
+      allow read, write: if false;
+
+      match /history/{operationId} {
+        allow read, write: if false;
+      }
+    }
+
+    match /usernameRateLimits/{uid}/{document=**} {
+      allow read, write: if false;
     }
 
     match /favorites/{favoriteId} {
@@ -320,22 +460,52 @@ service cloud.firestore {
         && resource.data.userId == request.auth.uid;
     }
 
+    function validReview(data) {
+      return data.keys().hasAll(['reviewerId', 'sellerId', 'rating', 'comment'])
+        && data.keys().hasOnly(['reviewerId', 'sellerId', 'rating', 'comment'])
+        && data.reviewerId is string
+        && data.reviewerId.size() > 0
+        && data.sellerId is string
+        && data.sellerId.size() > 0
+        && data.reviewerId != data.sellerId
+        && data.rating is int
+        && data.rating >= 1
+        && data.rating <= 5
+        && data.comment is string
+        && data.comment.size() <= 500;
+    }
+
+    function validLegacyReview(data) {
+      return data.keys().hasAll(['reviewerId', 'comment'])
+        && data.keys().hasOnly(['reviewerId', 'comment'])
+        && data.reviewerId is string
+        && data.reviewerId.size() > 0
+        && data.comment is string
+        && data.comment.size() <= 500;
+    }
+
     match /reviews/{reviewId} {
       allow read: if signedIn();
 
       allow create: if signedIn()
+        && validReview(request.resource.data)
         && request.auth.uid == request.resource.data.reviewerId
-        && request.resource.data.reviewerId != request.resource.data.sellerId
-        && request.resource.data.rating >= 1
-        && request.resource.data.rating <= 5
-        && request.resource.data.comment.size() <= 500
         && reviewId == request.resource.data.sellerId + '_'
           + request.resource.data.reviewerId;
 
       allow update: if signedIn()
         && request.auth.uid == resource.data.reviewerId
         && !request.resource.data.diff(resource.data).affectedKeys()
-          .hasAny(['reviewerId', 'sellerId']);
+          .hasAny(['reviewerId', 'sellerId'])
+        && (
+          (validReview(request.resource.data)
+            && reviewId == request.resource.data.sellerId + '_'
+              + request.resource.data.reviewerId)
+          ||
+          (!resource.data.keys().hasAny(['sellerId'])
+            && validLegacyReview(resource.data)
+            && validLegacyReview(request.resource.data))
+        );
 
       allow delete: if signedIn()
         && request.auth.uid == resource.data.reviewerId;

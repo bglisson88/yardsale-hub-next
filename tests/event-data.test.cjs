@@ -17,6 +17,7 @@ function eventInput(overrides = {}) {
     title: 'Neighborhood Sale',
     description: 'Saturday sale',
     location: 'Nederland',
+    locationId: 'nederland-tx',
     locationVisibility: 'general',
     address: '',
     ...dates,
@@ -34,6 +35,7 @@ test('general event documents exclude street addresses and precise coordinates',
   }));
   assert.equal(data.locationVisibility, 'general');
   assert.equal(data.location, 'Nederland');
+  assert.equal(data.locationId, 'nederland-tx');
   assert.equal('address' in data, false);
   assert.equal('latitude' in data, false);
   assert.equal('longitude' in data, false);

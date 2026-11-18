@@ -27,6 +27,10 @@ test('maps duplicate and transient callable errors by Firebase code', () => {
   assert.match(registrationErrorMessage({ code: 'functions/unavailable' }), /temporarily unavailable.*try again/);
   assert.match(registrationErrorMessage({ code: 'functions/unauthenticated' }), /Sign in/);
   assert.match(registrationErrorMessage({ code: 'functions/failed-precondition' }), /contact support/);
+  assert.match(registrationErrorMessage({
+    code: 'functions/resource-exhausted',
+    details: { reason: 'USERNAME_RATE_LIMIT', retryAfterSeconds: 901 },
+  }), /about 16 minutes/);
 });
 
 test('registers only after account and private profile creation, then retries without a second account', async () => {
@@ -208,7 +212,7 @@ for (const scenario of ['existing-user', 'duplicate', 'ambiguous-private-write']
 });
 
 for (const status of ['ready', 'missing', 'error']) test(`profile page handles ${status} public username separately from private data`, async () => {
-  const states = [], effects = [], reads = [];
+  const states = [], effects = [], lookups = [];
   let cursor = 0, tree, firstRender = true;
   const hooks = {
     useState(initial) {
@@ -228,15 +232,18 @@ for (const status of ['ready', 'missing', 'error']) test(`profile page handles $
     'next/link': { __esModule: true, default: 'a' },
     'next/navigation': { useRouter: () => ({ replace: () => assert.fail('unexpected redirect') }) },
     'firebase/firestore': {
-      doc: (_, collection, uid) => `${collection}/${uid}`,
-      getDocFromServer: async ref => {
-        reads.push(ref);
-        if (status === 'error') throw new Error('offline');
-        return { exists: () => status === 'ready', data: () => ({ username: 'seller_1' }) };
-      },
     },
     '@/lib/firebase': { db: {} },
     '@/lib/signup': require(`${process.env.CATEGORY_TEST_BUILD}/signup.js`),
+    '@/lib/username-rate-limit': require(`${process.env.CATEGORY_TEST_BUILD}/username-rate-limit.js`),
+    '@/lib/public-profile': {
+      getMyPublicUsername: async () => {
+        lookups.push('self');
+        if (status === 'error') throw new Error('offline');
+        return status === 'ready' ? 'seller_1' : null;
+      },
+      invalidatePublicUsernameCache() {},
+    },
     '@/hooks': { useAuthContext() {} },
     '@/store': { useAuthStore: () => ({
       user: { id: 'uid-1', displayName: 'Private Name', email: 'private@example.test', location: 'Nederland' },
@@ -268,20 +275,23 @@ for (const status of ['ready', 'missing', 'error']) test(`profile page handles $
   effects.forEach(effect => effect());
   await new Promise(resolve => setImmediate(resolve));
   render();
-  assert.deepEqual(reads, ['publicProfiles/uid-1']);
+  assert.deepEqual(lookups, ['self']);
   assert.equal(find(node => node.type === 'dd' && node.props.children === 'Private Name'), undefined);
   assert.ok(find(node => node.type === 'dd' && node.props.children === 'private@example.test'));
   if (status === 'ready') {
     assert.ok(find(node => node.type === 'dd' && React.Children.toArray(node.props.children.props.children).includes('seller_1')));
     assert.ok(find(node => node.type === 'button' && node.props.children === 'Edit Username'));
   }
-  if (status === 'missing') assert.ok(find(node => node.props?.href === '/auth/signup'));
+  if (status === 'missing') {
+    assert.ok(find(node => node.props?.href === '/auth/signup'));
+    assert.ok(find(node => node.type === 'button' && node.props.children === 'Try again'));
+  }
   if (status === 'error') assert.ok(find(node => node.type === 'button' && node.props.children === 'Try again'));
 });
 
-for (const scenario of ['success', 'unavailable-name', 'cooldown', 'inconsistent', 'missing-details', 'retry', 'invalid']) {
+for (const scenario of ['success', 'unavailable-name', 'cooldown', 'inconsistent', 'missing-details', 'retry', 'rate-limited', 'invalid']) {
   test(`profile username editing handles ${scenario}`, async () => {
-    const states = [], effects = [], calls = [];
+  const states = [], effects = [], calls = [];
     let cursor = 0, tree, firstRender = true, attempts = 0, resolveRename;
     const auth = { currentUser: { uid: 'uid-1' } };
     const hooks = {
@@ -301,13 +311,7 @@ for (const scenario of ['success', 'unavailable-name', 'cooldown', 'inconsistent
       react: hooks,
       'next/link': { __esModule: true, default: 'a' },
       'next/navigation': { useRouter: () => ({ replace: () => assert.fail('unexpected redirect') }) },
-      'firebase/firestore': {
-        doc: (_, collection, uid) => `${collection}/${uid}`,
-        getDocFromServer: async ref => {
-          assert.equal(ref, 'publicProfiles/uid-1');
-          return { exists: () => true, data: () => ({ username: 'seller_1' }) };
-        },
-      },
+      'firebase/firestore': {},
       'firebase/functions': {
         httpsCallable: (client, name) => {
           assert.equal(client, 'regional-functions');
@@ -319,6 +323,10 @@ for (const scenario of ['success', 'unavailable-name', 'cooldown', 'inconsistent
             if (scenario === 'cooldown') throw { code: 'functions/failed-precondition', message: 'Different message', details: { reason: 'USERNAME_RENAME_COOLDOWN' } };
             if (scenario === 'inconsistent' || scenario === 'missing-details') throw { code: 'functions/failed-precondition', message: 'You can change your username once every 30 days.', details: scenario === 'inconsistent' ? { reason: 'PROFILE_INCONSISTENT' } : undefined };
             if (scenario === 'retry' && attempts === 1) throw { code: 'functions/unavailable' };
+            if (scenario === 'rate-limited') throw {
+              code: 'functions/resource-exhausted',
+              details: { reason: 'USERNAME_RATE_LIMIT', retryAfterSeconds: 901 },
+            };
             if (scenario === 'success') return new Promise(resolve => { resolveRename = () => resolve({ data: { username: 'new_name' } }); });
             return { data: { username: payload.username } };
           };
@@ -326,6 +334,11 @@ for (const scenario of ['success', 'unavailable-name', 'cooldown', 'inconsistent
       },
       '@/lib/firebase': { db: {}, functions: 'regional-functions', auth },
       '@/lib/signup': require(`${process.env.CATEGORY_TEST_BUILD}/signup.js`),
+      '@/lib/username-rate-limit': require(`${process.env.CATEGORY_TEST_BUILD}/username-rate-limit.js`),
+      '@/lib/public-profile': {
+        getMyPublicUsername: async () => 'seller_1',
+        invalidatePublicUsernameCache: () => calls.push('invalidate-cache'),
+      },
       '@/hooks': { useAuthContext() {} },
       '@/store': { useAuthStore: () => ({ user: { id: 'uid-1', displayName: 'Private Name', email: 'private@example.test' }, loading: false }) },
       '@/components': { LoadingSpinner: () => null },
@@ -373,6 +386,7 @@ for (const scenario of ['success', 'unavailable-name', 'cooldown', 'inconsistent
     if (scenario === 'success') {
       assert.match(find(node => node.props?.role === 'status').props.children, /new_name/);
       assert.equal(find(node => node.type === 'form'), undefined);
+      assert.deepEqual(calls, [{ username: 'new_name' }, 'invalidate-cache']);
       return;
     }
     const message = find(node => node.props?.role === 'alert').props.children;
@@ -385,6 +399,7 @@ for (const scenario of ['success', 'unavailable-name', 'cooldown', 'inconsistent
     if (scenario === 'inconsistent' || scenario === 'missing-details') assert.match(message, /contact support/);
     if (scenario === 'unavailable-name') assert.match(message, /unavailable/);
     if (scenario === 'retry') assert.match(message, /temporarily unavailable/);
+    if (scenario === 'rate-limited') assert.match(message, /about 16 minutes/);
     assert.equal(find(node => node.props?.id === 'new-username').props.value, 'New_Name');
     if (scenario === 'unavailable-name' || scenario === 'retry') {
       if (scenario === 'unavailable-name') {
@@ -393,7 +408,11 @@ for (const scenario of ['success', 'unavailable-name', 'cooldown', 'inconsistent
       }
       await find(node => node.type === 'form').props.onSubmit({ preventDefault() {} });
       render();
-      assert.deepEqual(calls, [{ username: 'new_name' }, { username: scenario === 'retry' ? 'new_name' : 'other_name' }]);
+      assert.deepEqual(calls, [
+        { username: 'new_name' },
+        { username: scenario === 'retry' ? 'new_name' : 'other_name' },
+        'invalidate-cache',
+      ]);
       assert.match(find(node => node.props?.role === 'status').props.children, scenario === 'retry' ? /new_name/ : /other_name/);
     }
   });

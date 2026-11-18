@@ -21,7 +21,7 @@ export function CategoryNavigation() {
   const pointerFocus = useRef(false);
   const openSource = useRef<'hover' | 'focus' | 'click' | null>(null);
   const pendingFocus = useRef<'first' | 'last' | null>(null);
-  const hoverTimeout = useRef<ReturnType<typeof setTimeout>>();
+  const hoverTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const id = useId();
   const pathname = usePathname();
   const category = openCategory === null ? null : CATEGORIES[openCategory];

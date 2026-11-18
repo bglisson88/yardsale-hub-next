@@ -9,6 +9,7 @@ const sources = [
   'src/lib/discovery.ts',
   'src/lib/event-data.ts',
   'src/lib/signup.ts',
+  'src/lib/username-rate-limit.ts',
 ];
 const tests = [
   'tests/categories.test.cjs',
@@ -16,10 +17,15 @@ const tests = [
   'tests/category-taxonomy.test.cjs',
   'tests/discovery.test.cjs',
   'tests/event-data.test.cjs',
+  'tests/event-detail.test.cjs',
+  'tests/item-details.test.cjs',
+  'tests/public-events.test.cjs',
   'tests/restoration.test.cjs',
   'tests/selectors.test.cjs',
   'tests/usability.test.cjs',
   'tests/signup.test.cjs',
+  'tests/public-profile.test.cjs',
+  'tests/username-rate-limit.test.cjs',
   'tests/messages.test.cjs',
 ];
 

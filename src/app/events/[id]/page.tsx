@@ -1,43 +1,61 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
+import { doc, getDocFromServer } from 'firebase/firestore';
 import { Calendar, MapPin, Pencil, Users } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { db } from '@/lib/firebase';
-import { useAuthContext } from '@/hooks';
-import { useAuthStore } from '@/store';
+import { auth, db } from '@/lib/firebase';
 import { LoadingSpinner } from '@/components';
-import type { YardSaleEvent } from '@/types';
 import { deleteOwnedEvent } from '@/lib/delete-event';
+import { eventDate, parsePublicEvent } from '@/lib/public-event';
 import toast from 'react-hot-toast';
 
-function asDate(value: unknown): Date | undefined {
-  if (value instanceof Date) return value;
-  if (value && typeof value === 'object' && 'toDate' in value &&
-      typeof value.toDate === 'function') {
-    return value.toDate();
-  }
-  return undefined;
+interface EventDetail {
+  id: string;
+  title: string;
+  description: string;
+  location: string;
+  locationVisibility: 'general' | 'exact';
+  startDate: Date | null;
+  endDate: Date | null;
+  photoURL: string | null;
+  itemCount: number;
+}
+
+interface DetailResult {
+  id: string;
+  viewer: string | null;
+  event: EventDetail | null;
+  isOwner: boolean;
+  address: string;
+  error: string;
+}
+
+function isPermissionDenied(error: unknown): boolean {
+  return typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'permission-denied';
 }
 
 export default function EventDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const { user } = useAuthStore();
-  useAuthContext();
-  const [event, setEvent] = useState<YardSaleEvent | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [viewer, setViewer] = useState<string | null | undefined>(undefined);
+  const [result, setResult] = useState<DetailResult | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const id = params.id;
+  const current = result?.id === id && result.viewer === viewer ? result : null;
+  const event = current?.event;
 
   const handleDelete = async () => {
-    if (!user || !event || deleting || user.id !== event.userId) return;
+    if (!viewer || !current?.isOwner || !event || deleting || auth.currentUser?.uid !== viewer) return;
     if (!window.confirm('Delete this event? This cannot be undone.')) return;
     setDeleting(true);
     try {
-      const warning = await deleteOwnedEvent(event.id, user.id);
+      const warning = await deleteOwnedEvent(event.id, viewer);
       if (warning) toast.success(warning, { duration: 10000 });
       else toast.success('Event deleted.');
       router.push('/dashboard/events');
@@ -47,53 +65,79 @@ export default function EventDetailPage() {
     }
   };
 
+  useEffect(() => onAuthStateChanged(auth, user => setViewer(user?.uid ?? null)), []);
+
   useEffect(() => {
+    if (viewer === undefined) return;
+    const viewerId = viewer;
     let active = true;
     async function loadEvent() {
+      const detail: DetailResult = {
+        id, viewer: viewerId, event: null, isOwner: false, address: '', error: '',
+      };
+      let projectionFailed = false;
       try {
-        const snapshot = await getDoc(doc(db, 'yardSaleEvents', params.id));
-        if (!snapshot.exists()) throw new Error('Sale not found.');
-        const data = snapshot.data();
-        let publishedAddress = '';
-
-        if (data.locationVisibility === 'exact') {
-          const privateSnapshot = await getDoc(doc(db, 'eventPrivate', params.id));
-          const privateData = privateSnapshot.exists() ? privateSnapshot.data() : null;
-          if (privateData && privateData.userId === data.userId && typeof privateData.address === 'string') {
-            publishedAddress = privateData.address.trim();
-          }
-        }
-
-        if (active) {
-          setEvent({
-            ...data,
-            address: publishedAddress,
-            id: snapshot.id,
-            startDate: asDate(data.startDate),
-            endDate: asDate(data.endDate),
-            createdAt: asDate(data.createdAt),
-            updatedAt: asDate(data.updatedAt),
-            locationVisibility: data.locationVisibility === 'exact' ? 'exact' : 'general',
-          } as YardSaleEvent);
-        }
-      } catch (loadError) {
-        if (active) setError(loadError instanceof Error ? loadError.message : 'Failed to load sale.');
-      } finally {
-        if (active) setLoading(false);
+        const snapshot = await getDocFromServer(doc(db, 'publicYardSaleEvents', id));
+        if (snapshot.exists()) detail.event = parsePublicEvent(snapshot);
+      } catch (error) {
+        projectionFailed = !isPermissionDenied(error);
       }
+
+      let canReadAsPublic = viewerId === null;
+      if (viewerId && active) {
+        try {
+          const snapshot = await getDocFromServer(doc(db, 'yardSaleEvents', id));
+          const source = snapshot.data();
+          if (source?.userId === viewerId) {
+            detail.isOwner = true;
+            detail.event ??= {
+              id,
+              title: typeof source.title === 'string' ? source.title : 'Sale',
+              description: typeof source.description === 'string' ? source.description : '',
+              location: typeof source.location === 'string' ? source.location : '',
+              locationVisibility: source.locationVisibility === 'exact' ? 'exact' : 'general',
+              startDate: eventDate(source.startDate),
+              endDate: eventDate(source.endDate),
+              photoURL: typeof source.photoURL === 'string' ? source.photoURL : null,
+              itemCount: typeof source.itemCount === 'number' ? source.itemCount : 0,
+            };
+          }
+        } catch (error) {
+          // A denied owner lookup is normal for a signed-in visitor.
+          canReadAsPublic = isPermissionDenied(error);
+          if (!canReadAsPublic && !detail.event) projectionFailed = true;
+        }
+      }
+
+      // Owners can read unpublished addresses in the editor. An owner read here
+      // would not prove that the Rules granted access on the basis of consent.
+      if (active && canReadAsPublic && detail.event?.locationVisibility === 'exact') {
+        try {
+          const snapshot = await getDocFromServer(doc(db, 'eventPrivate', id));
+          const data = snapshot.data();
+          if (data && data.userId !== viewerId && typeof data.address === 'string') {
+            detail.address = data.address.trim();
+          }
+        } catch {
+          // Keep the public projection visible when the separate address is unavailable.
+        }
+      }
+
+      if (!detail.event) detail.error = projectionFailed ? 'Failed to load sale. Please try again.' : 'Sale not found.';
+      if (active && (auth.currentUser?.uid ?? null) === viewerId) setResult(detail);
     }
     void loadEvent();
     return () => { active = false; };
-  }, [params.id]);
+  }, [id, viewer]);
 
-  if (loading) {
+  if (!current) {
     return <div className="min-h-screen flex items-center justify-center"><LoadingSpinner /></div>;
   }
-  if (error || !event) {
-    return <div className="mx-auto max-w-3xl px-4 py-12"><p role="alert" className="mb-4 text-red-700">{error || 'Sale not found.'}</p><Link href="/events" className="text-blue-600 underline">Back to events</Link></div>;
+  if (!event) {
+    return <div className="mx-auto max-w-3xl px-4 py-12"><p role="alert" className="mb-4 text-red-700">{current.error}</p><Link href="/events" className="text-blue-600 underline">Back to events</Link></div>;
   }
 
-  const exactAddress = event.locationVisibility === 'exact' ? event.address?.trim() : '';
+  const exactAddress = current.address;
   const directionsURL = exactAddress
     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(exactAddress)}`
     : '';
@@ -109,7 +153,7 @@ export default function EventDetailPage() {
         <div className="p-5 sm:p-8">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <h1 className="text-3xl font-bold text-gray-900">{event.title}</h1>
-            {user?.id === event.userId && (
+            {current.isOwner && (
               <div className="flex flex-wrap gap-2">
                 <Link href={`/events/${event.id}/edit`} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700">
                   <Pencil size={16} aria-hidden="true" /> Edit Event
@@ -149,7 +193,13 @@ export default function EventDetailPage() {
                     </dd>
                   </>
                 ) : (
-                  <dd className="mt-1 text-sm text-gray-600">The organizer has chosen to share only a general location.</dd>
+                  <dd className="mt-1 text-sm text-gray-600">
+                    {event.locationVisibility === 'exact'
+                      ? current.isOwner
+                        ? 'Manage the exact address in Edit Event.'
+                        : 'The exact address is unavailable. Showing the general location.'
+                      : 'The organizer has chosen to share only a general location.'}
+                  </dd>
                 )}
               </div>
             </div>

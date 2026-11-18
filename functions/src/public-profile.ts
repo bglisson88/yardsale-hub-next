@@ -8,6 +8,7 @@ import {
   cooldownDateFromTimestamp,
   isReservedUsername,
 } from './username';
+import { consumeUsernameAttempt } from './rate-limit';
 import { profileCallableOptions } from './runtime-options';
 
 const INVALID_REQUEST_MESSAGE = 'Provide a valid username.';
@@ -146,6 +147,7 @@ export const registerPublicProfile = onCall(profileCallableOptions, async reques
   const memberSince = authCreationTimestamp(authUser.metadata.creationTime);
 
   const firestore = getFirestore();
+  await consumeUsernameAttempt(firestore, uid, 'register').catch(throwRegistrationBackendError);
   const privateUserQuery = firestore.collection('users')
     .select('displayName')
     .where(FieldPath.documentId(), '==', uid);
@@ -298,6 +300,7 @@ export const renameUsername = onCall(profileCallableOptions, async request => {
   } catch (error) {
     throwRenameBackendError(error);
   }
+  await consumeUsernameAttempt(firestore, uid, 'rename').catch(throwRenameBackendError);
 
   return Promise.resolve().then(() => firestore.runTransaction(async transaction => {
     const profileRef = firestore.collection('publicProfiles').doc(uid);

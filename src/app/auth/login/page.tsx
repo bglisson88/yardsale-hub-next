@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
@@ -12,14 +12,17 @@ import { loadAuthUser } from '@/hooks/useAuthContext';
 import { useAuthStore } from '@/store';
 import { authDestination } from '@/lib/auth-redirect';
 
-export default function Login({ searchParams }: { searchParams: { returnTo?: string | string[] } }) {
+export default function Login({ searchParams }: {
+  searchParams: Promise<{ returnTo?: string | string[] }>;
+}) {
+  const { returnTo } = use(searchParams);
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
     password: '',
   });
   const router = useRouter();
-  const destination = authDestination(searchParams.returnTo);
+  const destination = authDestination(returnTo);
   const { user, loading: authLoading, setUser } = useAuthStore();
   useAuthContext();
 
