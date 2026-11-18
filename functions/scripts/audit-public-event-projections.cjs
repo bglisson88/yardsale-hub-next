@@ -1,11 +1,18 @@
-const fs = require('node:fs');
+const fs = require('node:fs/promises');
 const path = require('node:path');
-const { applicationDefault, initializeApp } = require('firebase-admin/app');
-const { FieldPath, getFirestore } = require('firebase-admin/firestore');
+const { Firestore } = require('@google-cloud/firestore');
+const {
+  GoogleAuth, IdentityPoolClient, Impersonated, UserRefreshClient,
+} = require('google-auth-library');
 
 const STAGING_PROJECT_ID = 'yardsale-hub-staging';
 const STAGING_AUDIT_SERVICE_ACCOUNT =
   'yardsale-hub-staging-audit@yardsale-hub-staging.iam.gserviceaccount.com';
+const SOURCE_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
+const FIRESTORE_SCOPE = 'https://www.googleapis.com/auth/datastore';
+const EMAIL_SCOPE = 'https://www.googleapis.com/auth/userinfo.email';
+const STS_URL = 'https://sts.googleapis.com/v1/token';
+const IMPERSONATION_URL_PREFIX = 'https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/';
 const READ_COLLECTIONS = new Set([
   'yardSaleEvents',
   'publicYardSaleEvents',
@@ -18,36 +25,11 @@ const EMULATOR_VARIABLES = [
   'FIREBASE_STORAGE_EMULATOR_HOST',
   'FIREBASE_DATABASE_EMULATOR_HOST',
   'FUNCTIONS_EMULATOR',
+  'FUNCTIONS_EMULATOR_HOST',
   'FIREBASE_EMULATORS_PATH',
 ];
 
-function getImpersonatedServiceAccount(config) {
-  if (!config || !['impersonated_service_account', 'external_account'].includes(config.type)) {
-    return null;
-  }
-  const url = config.service_account_impersonation_url;
-  if (typeof url !== 'string') return null;
-  let parsedUrl;
-  try {
-    parsedUrl = new URL(url);
-  } catch {
-    return null;
-  }
-  if (
-    parsedUrl.protocol !== 'https:' ||
-    parsedUrl.hostname !== 'iamcredentials.googleapis.com'
-  ) return null;
-  const match = /^\/v1\/projects\/-\/serviceAccounts\/([^/:]+):generateAccessToken$/
-    .exec(parsedUrl.pathname);
-  if (!match) return null;
-  try {
-    return decodeURIComponent(match[1]);
-  } catch {
-    return null;
-  }
-}
-
-function validateEnvironment(args, env) {
+function validatePreflight(args, env) {
   const plan = args.length === 3 && args[2] === '--plan';
   if (
     (args.length !== 2 && !plan) ||
@@ -63,7 +45,11 @@ function validateEnvironment(args, env) {
   ) {
     return { error: 'Staging project configuration does not match the reviewed identity.' };
   }
-  for (const name of ['GCLOUD_PROJECT', 'GOOGLE_CLOUD_PROJECT']) {
+  for (const name of [
+    'GCLOUD_PROJECT',
+    'GOOGLE_CLOUD_PROJECT',
+    'GOOGLE_CLOUD_QUOTA_PROJECT',
+  ]) {
     if (env[name] && env[name] !== STAGING_PROJECT_ID) {
       return { error: 'A configured project does not match the staging target.' };
     }
@@ -85,23 +71,81 @@ function validateEnvironment(args, env) {
   return { projectId: STAGING_PROJECT_ID, plan };
 }
 
-function validatePreflight(args, env, adcConfig) {
-  const environment = validateEnvironment(args, env);
-  if (environment.error) return environment;
-  if (getImpersonatedServiceAccount(adcConfig) !== STAGING_AUDIT_SERVICE_ACCOUNT) {
-    return { error: 'Application credentials do not match the reviewed staging identity.' };
-  }
-  return environment;
+function nonemptyString(value) {
+  return typeof value === 'string' && value.trim().length > 0;
 }
 
-function loadAdcConfig(env) {
-  const filename = env.GOOGLE_APPLICATION_CREDENTIALS;
-  if (!filename) throw new Error('Application credentials are required.');
-  try {
-    return JSON.parse(fs.readFileSync(filename, 'utf8'));
-  } catch {
-    throw new Error('Application credentials could not be verified.');
+function validateCredentials(config) {
+  const invalid = () => new Error('Invalid staging impersonation credentials.');
+  if (!config || ![STAGING_AUDIT_SERVICE_ACCOUNT, encodeURIComponent(STAGING_AUDIT_SERVICE_ACCOUNT)]
+    .some(principal =>
+      config.service_account_impersonation_url === `${IMPERSONATION_URL_PREFIX}${principal}:generateAccessToken`
+    )) {
+    throw invalid();
   }
+  if (config.type === 'impersonated_service_account') {
+    const source = config.source_credentials;
+    if (source?.type !== 'authorized_user' ||
+        ![source.client_id, source.client_secret, source.refresh_token].every(nonemptyString)) {
+      throw invalid();
+    }
+    return {
+      clientId: source.client_id,
+      clientSecret: source.client_secret,
+      refreshToken: source.refresh_token,
+    };
+  }
+
+  const { audience, credential_source: source } = config;
+  const format = source?.format;
+  if (config.type !== 'external_account' ||
+      typeof audience !== 'string' ||
+      !/^\/\/iam\.googleapis\.com\/projects\/\d+\/locations\/global\/workloadIdentityPools\/[\w-]+\/providers\/[\w-]+$/.test(audience) ||
+      config.token_url !== STS_URL ||
+      config.subject_token_type !== 'urn:ietf:params:oauth:token-type:jwt' ||
+      typeof source?.file !== 'string' || !path.isAbsolute(source.file) ||
+      Object.keys(source).some(key => key !== 'file' && key !== 'format') ||
+      (format !== undefined && format?.type !== 'text' &&
+        !(format?.type === 'json' && nonemptyString(format.subject_token_field_name)))) {
+    throw invalid();
+  }
+  return {
+    audience,
+    subject_token_type: config.subject_token_type,
+    token_url: STS_URL,
+    credential_source: { file: source.file, ...(format && { format }) },
+    scopes: [SOURCE_SCOPE],
+  };
+}
+
+async function createFirestoreClient(config, {
+  IdentityPoolClientClass = IdentityPoolClient,
+  ImpersonatedClass = Impersonated,
+  UserRefreshClientClass = UserRefreshClient,
+  FirestoreClass = Firestore,
+} = {}) {
+  const sourceOptions = validateCredentials(config);
+  const sourceAuth = config.type === 'external_account'
+    ? new IdentityPoolClientClass(sourceOptions)
+    : new UserRefreshClientClass(sourceOptions);
+  sourceAuth.quotaProjectId = STAGING_PROJECT_ID;
+  const impersonated = new ImpersonatedClass({
+    sourceClient: sourceAuth,
+    targetPrincipal: STAGING_AUDIT_SERVICE_ACCOUNT,
+    targetScopes: [FIRESTORE_SCOPE, EMAIL_SCOPE],
+    lifetime: 3600,
+    quotaProjectId: STAGING_PROJECT_ID,
+  });
+  const { token } = await impersonated.getAccessToken();
+  const principal = token ? await impersonated.getTokenInfo(token) : null;
+  if (principal?.email !== STAGING_AUDIT_SERVICE_ACCOUNT || principal.email_verified === false) {
+    throw new Error('Staging audit identity could not be verified.');
+  }
+  // GAX expects a GoogleAuth wrapper, not a bare OAuth client.
+  return new FirestoreClass({
+    projectId: STAGING_PROJECT_ID,
+    auth: new GoogleAuth({ projectId: STAGING_PROJECT_ID, authClient: impersonated }),
+  });
 }
 
 function readOnlyStore(firestore) {
@@ -146,38 +190,30 @@ async function main(args = process.argv.slice(2), env = process.env) {
     return;
   }
 
-  const environment = validateEnvironment(args, env);
-  if (environment.error) {
-    console.error(`Projection audit blocked: ${environment.error}`);
-    process.exitCode = 2;
-    return;
-  }
-
-  let preflight;
-  try {
-    preflight = validatePreflight(args, env, loadAdcConfig(env));
-  } catch {
-    console.error('Projection audit blocked: staging identity could not be verified.');
-    process.exitCode = 2;
-    return;
-  }
+  const preflight = validatePreflight(args, env);
   if (preflight.error) {
     console.error(`Projection audit blocked: ${preflight.error}`);
     process.exitCode = 2;
     return;
   }
 
-  process.env.GCLOUD_PROJECT = preflight.projectId;
+  let config;
+  try {
+    config = JSON.parse(await fs.readFile(env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8'));
+    validateCredentials(config);
+  } catch {
+    console.error('Projection audit blocked: staging identity could not be verified.');
+    process.exitCode = 2;
+    return;
+  }
+
   try {
     const {
       auditPublicEventProjections,
       formatProjectionCoverageReport,
     } = require('../lib/public-event-projection-audit.js');
-    const app = initializeApp({
-      credential: applicationDefault(),
-      projectId: preflight.projectId,
-    }, 'staging-public-event-projection-audit');
-    const report = await auditPublicEventProjections(readOnlyStore(getFirestore(app)));
+    const firestore = await createFirestoreClient(config);
+    const report = await auditPublicEventProjections(readOnlyStore(firestore));
     const formatted = JSON.parse(formatProjectionCoverageReport(preflight.projectId, report));
     formatted.mode = preflight.plan ? 'dry-run-plan' : 'read-only-audit';
     formatted.writesPerformed = 0;
@@ -193,7 +229,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-  getImpersonatedServiceAccount,
+  createFirestoreClient,
   main,
   readOnlyStore,
   safeFailureMessage,

@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { FieldPath, Timestamp } = require('firebase-admin/firestore');
+const { Firestore } = require('@google-cloud/firestore');
 
 process.env.GCLOUD_PROJECT = 'demo-yardsale-hub';
 process.env.YSH_EXPECTED_PROJECT_ID = 'demo-yardsale-hub';
@@ -21,7 +22,7 @@ const {
   buildPublicEventProjection,
 } = require('../lib/public-event-projection.js');
 const {
-  getImpersonatedServiceAccount,
+  createFirestoreClient,
   readOnlyStore,
   safeFailureMessage,
   validatePreflight,
@@ -30,10 +31,25 @@ const {
 const STAGING_PROJECT = 'yardsale-hub-staging';
 const AUDIT_IDENTITY =
   'yardsale-hub-staging-audit@yardsale-hub-staging.iam.gserviceaccount.com';
-const CREDENTIALS = {
+const IMPERSONATION_URL =
+  `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${AUDIT_IDENTITY}:generateAccessToken`;
+const IMPERSONATED_CONFIG = {
   type: 'impersonated_service_account',
-  service_account_impersonation_url:
-    `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${AUDIT_IDENTITY}:generateAccessToken`,
+  service_account_impersonation_url: IMPERSONATION_URL,
+  source_credentials: {
+    type: 'authorized_user',
+    client_id: 'test-client-id',
+    client_secret: 'test-client-secret',
+    refresh_token: 'test-refresh-token',
+  },
+};
+const EXTERNAL_CONFIG = {
+  type: 'external_account',
+  service_account_impersonation_url: IMPERSONATION_URL,
+  audience: '//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/test/providers/test',
+  subject_token_type: 'urn:ietf:params:oauth:token-type:jwt',
+  token_url: 'https://sts.googleapis.com/v1/token',
+  credential_source: { file: '/test/subject-token' },
 };
 const START = Timestamp.fromDate(new Date('2026-11-20T09:00:00Z'));
 const END = Timestamp.fromDate(new Date('2026-11-20T12:00:00Z'));
@@ -161,16 +177,22 @@ function validEnvironment(overrides = {}) {
   };
 }
 
-test('preflight permits only explicit staging with matching impersonated identity', () => {
+test('preflight permits only explicit staging with matching reviewed settings', () => {
   assert.deepEqual(
-    validatePreflight(['--project', STAGING_PROJECT], validEnvironment(), CREDENTIALS),
+    validatePreflight(['--project', STAGING_PROJECT], validEnvironment()),
     { projectId: STAGING_PROJECT, plan: false },
   );
   assert.deepEqual(
-    validatePreflight(['--project', STAGING_PROJECT, '--plan'], validEnvironment(), CREDENTIALS),
+    validatePreflight(
+      ['--project', STAGING_PROJECT],
+      validEnvironment({ GOOGLE_APPLICATION_CREDENTIALS: '/source-adc.json' }),
+    ),
+    { projectId: STAGING_PROJECT, plan: false },
+  );
+  assert.deepEqual(
+    validatePreflight(['--project', STAGING_PROJECT, '--plan'], validEnvironment()),
     { projectId: STAGING_PROJECT, plan: true },
   );
-  assert.equal(getImpersonatedServiceAccount(CREDENTIALS), AUDIT_IDENTITY);
 });
 
 test('preflight rejects missing, production, unexpected, and emulator targets', () => {
@@ -181,39 +203,158 @@ test('preflight rejects missing, production, unexpected, and emulator targets', 
     'FIREBASE_STORAGE_EMULATOR_HOST',
     'FIREBASE_DATABASE_EMULATOR_HOST',
     'FUNCTIONS_EMULATOR',
+    'FUNCTIONS_EMULATOR_HOST',
     'FIREBASE_EMULATORS_PATH',
   ];
-  for (const [args, env, credentials] of [
-    [[], validEnvironment(), CREDENTIALS],
-    [['--project', 'yardsale-hub-93c49'], validEnvironment(), CREDENTIALS],
-    [['--project', STAGING_PROJECT, '--apply'], validEnvironment(), CREDENTIALS],
-    [['--project', STAGING_PROJECT], validEnvironment({ GCLOUD_PROJECT: 'yardsale-hub-93c49' }), CREDENTIALS],
-    [['--project', STAGING_PROJECT], validEnvironment({ GOOGLE_CLOUD_PROJECT: 'wrong-project' }), CREDENTIALS],
+  for (const [args, env] of [
+    [[], validEnvironment()],
+    [['--project', 'yardsale-hub-93c49'], validEnvironment()],
+    [['--project', STAGING_PROJECT, '--apply'], validEnvironment()],
+    [['--project', STAGING_PROJECT], validEnvironment({ GCLOUD_PROJECT: 'yardsale-hub-93c49' })],
+    [['--project', STAGING_PROJECT], validEnvironment({ GOOGLE_CLOUD_PROJECT: 'wrong-project' })],
+    [['--project', STAGING_PROJECT], validEnvironment({ GOOGLE_CLOUD_QUOTA_PROJECT: 'yardsale-hub-93c49' })],
+    [['--project', STAGING_PROJECT], validEnvironment({ YSH_EXPECTED_PROJECT_ID: 'yardsale-hub-93c49' })],
     ...emulatorVariables.map(name => [
       ['--project', STAGING_PROJECT],
       validEnvironment({ [name]: 'configured' }),
-      CREDENTIALS,
     ]),
-    [['--project', STAGING_PROJECT], validEnvironment({ FIREBASE_CONFIG: 'not-json' }), CREDENTIALS],
-    [['--project', STAGING_PROJECT], validEnvironment({ FIREBASE_CONFIG: '{"projectId":"wrong-project"}' }), CREDENTIALS],
-    [['--project', STAGING_PROJECT], validEnvironment({ YSH_PROJECTION_AUDIT_SERVICE_ACCOUNT: 'unexpected' }), CREDENTIALS],
-    [['--project', STAGING_PROJECT], validEnvironment(), { type: 'authorized_user' }],
-    [['--project', STAGING_PROJECT], validEnvironment(), {
-      type: 'impersonated_service_account',
-      service_account_impersonation_url:
-        'https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/another@yardsale-hub-staging.iam.gserviceaccount.com:generateAccessToken',
-    }],
-    [['--project', STAGING_PROJECT], validEnvironment(), {
-      type: 'service_account',
-      client_email: AUDIT_IDENTITY,
-    }],
-    [['--project', STAGING_PROJECT], validEnvironment(), {
-      type: 'external_account',
-      service_account_impersonation_url: 'https://unexpected.example/v1/projects/-/serviceAccounts/yardsale-hub-staging-audit@yardsale-hub-staging.iam.gserviceaccount.com:generateAccessToken',
-    }],
+    [['--project', STAGING_PROJECT], validEnvironment({ FIREBASE_CONFIG: 'not-json' })],
+    [['--project', STAGING_PROJECT], validEnvironment({ FIREBASE_CONFIG: '{"projectId":"wrong-project"}' })],
+    [['--project', STAGING_PROJECT], validEnvironment({ YSH_PROJECTION_AUDIT_SERVICE_ACCOUNT: 'unexpected' })],
   ]) {
-    assert.ok(validatePreflight(args, env, credentials).error);
+    assert.ok(validatePreflight(args, env).error);
   }
+});
+
+function mockAuthentication({
+  email = AUDIT_IDENTITY,
+  emailVerified = true,
+  token = 'test-access-token',
+  tokenError,
+} = {}) {
+  const calls = [];
+  class FakeSource {
+    constructor(options) {
+      this.options = options;
+      calls.push('source');
+    }
+  }
+  class FakeImpersonated {
+    constructor(options) {
+      this.options = options;
+      this.universeDomain = 'googleapis.com';
+      calls.push('impersonate');
+    }
+
+    async getAccessToken() {
+      calls.push('issue token');
+      if (tokenError) throw tokenError;
+      return { token };
+    }
+
+    async getTokenInfo(accessToken) {
+      assert.equal(accessToken, token);
+      calls.push('verify token');
+      return { email, email_verified: emailVerified };
+    }
+  }
+  return {
+    calls,
+    deps: {
+      UserRefreshClientClass: FakeSource,
+      IdentityPoolClientClass: FakeSource,
+      ImpersonatedClass: FakeImpersonated,
+    },
+  };
+}
+
+for (const config of [IMPERSONATED_CONFIG, EXTERNAL_CONFIG]) {
+  test(`verified ${config.type} credentials reach the real Firestore GAX client without ADC`, async () => {
+    const { calls, deps } = mockAuthentication();
+    const firestore = await createFirestoreClient(config, deps);
+    try {
+      assert.ok(firestore instanceof Firestore);
+      assert.equal(firestore.projectId, STAGING_PROJECT);
+      assert.deepEqual(calls, ['source', 'impersonate', 'issue token', 'verify token']);
+      // Inspect the generated client without creating an RPC or a gRPC stub.
+      await firestore._clientPool.run('offline-auth-test', true, async client => {
+        assert.equal(await client.auth.getProjectId(), STAGING_PROJECT);
+        const credential = await client.auth.getClient();
+        assert.ok(credential instanceof deps.ImpersonatedClass);
+        const { sourceClient, ...options } = credential.options;
+        assert.equal(sourceClient.quotaProjectId, STAGING_PROJECT);
+        assert.deepEqual(options, {
+          targetPrincipal: AUDIT_IDENTITY,
+          targetScopes: [
+            'https://www.googleapis.com/auth/datastore',
+            'https://www.googleapis.com/auth/userinfo.email',
+          ],
+          lifetime: 3600,
+          quotaProjectId: STAGING_PROJECT,
+        });
+        if (config.type === 'external_account') {
+          assert.deepEqual(sourceClient.options.scopes, ['https://www.googleapis.com/auth/cloud-platform']);
+          assert.deepEqual(sourceClient.options.credential_source, config.credential_source);
+          assert.equal(sourceClient.options.service_account_impersonation_url, undefined);
+        } else {
+          assert.equal(sourceClient.options.refreshToken, config.source_credentials.refresh_token);
+        }
+      });
+    } finally {
+      await firestore.terminate();
+    }
+  });
+}
+
+test('invalid configurations fail before any auth client is constructed', async () => {
+  for (const config of [
+    null,
+    { ...IMPERSONATED_CONFIG, source_credentials: { type: 'service_account' } },
+    { ...IMPERSONATED_CONFIG, source_credentials: { type: 'authorized_user' } },
+    { ...IMPERSONATED_CONFIG, service_account_impersonation_url: IMPERSONATION_URL.replace(AUDIT_IDENTITY, 'other') },
+    { ...EXTERNAL_CONFIG, service_account_impersonation_url: IMPERSONATION_URL.replace('iamcredentials.googleapis.com', 'other.example') },
+    { ...EXTERNAL_CONFIG, token_url: 'https://other.example/token' },
+    { ...EXTERNAL_CONFIG, credential_source: { ...EXTERNAL_CONFIG.credential_source, executable: {} } },
+  ]) {
+    const { calls, deps } = mockAuthentication();
+    await assert.rejects(createFirestoreClient(config, deps), /Invalid staging impersonation credentials/);
+    assert.deepEqual(calls, []);
+  }
+});
+
+test('missing tokens and unverified principals block Firestore initialization', async () => {
+  for (const options of [
+    { token: null },
+    { email: null },
+    { email: 'unexpected@example.com' },
+    { emailVerified: false },
+    { tokenError: new Error('token exchange denied') },
+  ]) {
+    const { deps } = mockAuthentication(options);
+    class UnexpectedFirestore {
+      constructor() {
+        assert.fail('Firestore must not be constructed');
+      }
+    }
+    await assert.rejects(
+      createFirestoreClient(IMPERSONATED_CONFIG, { ...deps, FirestoreClass: UnexpectedFirestore }),
+      options.tokenError ?? /Staging audit identity could not be verified/,
+    );
+  }
+});
+
+test('Firestore initialization failure propagates after principal verification', async () => {
+  const { calls, deps } = mockAuthentication();
+  class FailingFirestore {
+    constructor() {
+      assert.equal(calls.at(-1), 'verify token');
+      throw new Error('Firestore initialization failed');
+    }
+  }
+  await assert.rejects(
+    createFirestoreClient(IMPERSONATED_CONFIG, { ...deps, FirestoreClass: FailingFirestore }),
+    /Firestore initialization failed/,
+  );
 });
 
 test('audit store exposes only reads and cannot invoke Firestore writes', async () => {

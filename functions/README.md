@@ -236,13 +236,23 @@ Rules source, not copied from this staging-only file.
 performs a read-only aggregate audit; add `--plan` to label the output as a
 dry-run plan. The command accepts only the explicit staging project, loads the
 tracked staging Functions settings, rejects emulator or conflicting project
-configuration, and requires impersonated credentials for the dedicated
-`yardsale-hub-staging-audit` service account. Provision that identity separately
-with read-only Firestore permissions only; do not use the Functions runtime
-identity, which has write permissions. Set
-`YSH_PROJECTION_AUDIT_SERVICE_ACCOUNT` to the reviewed audit identity and
-`GOOGLE_APPLICATION_CREDENTIALS` to an impersonated ADC configuration; the
-tool rejects key-based service-account credentials.
+configuration, and requires `GOOGLE_APPLICATION_CREDENTIALS` to point to a
+trusted, reviewed impersonation configuration for the hardcoded
+`yardsale-hub-staging-audit` service account. It accepts
+`impersonated_service_account` with an `authorized_user` source or
+`external_account` with a file-sourced workload identity JWT and Google's
+STS endpoint. It does not accept service-account keys, executable or
+URL-based credential sources, or alternate impersonation endpoints.
+`YSH_PROJECTION_AUDIT_SERVICE_ACCOUNT` must match the reviewed identity but
+cannot override it.
+
+The audit checks the issued access token's email with Google's token-info
+endpoint before constructing Firestore. The token requests datastore access
+and the email scope needed for this check. Firestore receives the verified
+client explicitly via GoogleAuth, with no second ADC lookup. The Firestore
+resource project and both credentials' quota project are pinned to
+`yardsale-hub-staging`; conflicting quota configuration is rejected. Do not
+use the writable Functions runtime service account for this audit.
 
 The audit reuses the projection builder and catalog validator. It reports
 structural eligibility separately from publication approval; publication

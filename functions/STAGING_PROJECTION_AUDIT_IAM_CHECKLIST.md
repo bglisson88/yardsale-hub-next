@@ -39,8 +39,11 @@ assume `roles/viewer` provides Firestore document access.
 
 The human or workload principal that starts the audit also needs to obtain
 short-lived credentials for the dedicated service account. Prefer service
-account impersonation over a downloaded key. If using the predefined
-`roles/iam.serviceAccountTokenCreator`, scope it to this service account only,
+account impersonation over a downloaded key. Use a reviewed credential
+configuration of a type documented in the Functions README. The audit
+validates its target, then explicitly impersonates the hardcoded staging
+audit account and verifies the issued access token's email. If using the
+predefined `roles/iam.serviceAccountTokenCreator`, scope it to this service account only,
 not the project; review its permissions and organizational policy before
 granting it. Do not grant that role to the audit service account itself.
 
@@ -70,10 +73,11 @@ granting it. Do not grant that role to the audit service account itself.
         are not granted.
       - Inspect inherited policies and troubleshoot the same read permissions
         against the production project; confirm they are denied.
-      - Verify the caller can impersonate only the dedicated audit identity,
-        and that the resulting short-lived credential configuration names that
-        identity. The CLI must reject user ADC, key-based service-account ADC,
-        and any different impersonation target.
+      - Verify the ADC source principal can impersonate only the dedicated
+        audit identity. The audit fixes Firestore's project and both source
+        and impersonated-auth quota projects to `yardsale-hub-staging`; confirm
+        none point to production. The hardcoded target cannot be changed
+        through ADC files or environment settings.
 7. [ ] Have a second reviewer confirm the project, identity, effective
       permissions, and negative write/production checks. Record approval
       without recording credentials or access tokens.
@@ -89,8 +93,9 @@ granting it. Do not grant that role to the audit service account itself.
 - [Application Default Credentials](https://docs.cloud.google.com/docs/authentication/application-default-credentials)
 
 The audit CLI independently requires the explicit staging project,
-`YSH_FUNCTIONS_MODE=staging`, the configured dedicated identity, and an ADC
-configuration that impersonates that exact service account. Its Firestore
-adapter exposes only `get` and query-read operations. These application checks
-do not replace IAM verification; IAM must independently deny writes and
-production access.
+`YSH_FUNCTIONS_MODE=staging`, and the configured dedicated identity. It loads
+the specified credential configuration without an implicit ADC lookup and
+pins Firestore and both quota project configurations to staging. Its
+Firestore adapter exposes only `get` and
+query-read operations. These application checks do not replace IAM
+verification; IAM must independently deny writes and production access.
