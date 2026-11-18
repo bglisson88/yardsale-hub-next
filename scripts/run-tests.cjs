@@ -18,6 +18,7 @@ const tests = [
   'tests/discovery.test.cjs',
   'tests/event-data.test.cjs',
   'tests/event-detail.test.cjs',
+  'tests/item-details.test.cjs',
   'tests/public-events.test.cjs',
   'tests/restoration.test.cjs',
   'tests/selectors.test.cjs',
