@@ -138,7 +138,11 @@ async function createFirestoreClient(config, {
   });
   const { token } = await impersonated.getAccessToken();
   const principal = token ? await impersonated.getTokenInfo(token) : null;
-  if (principal?.email !== STAGING_AUDIT_SERVICE_ACCOUNT || principal.email_verified === false) {
+  const emailVerified = principal?.email_verified;
+  if (
+    principal?.email !== STAGING_AUDIT_SERVICE_ACCOUNT ||
+    (emailVerified !== true && emailVerified !== 'true')
+  ) {
     throw new Error('Staging audit identity could not be verified.');
   }
   // GAX expects a GoogleAuth wrapper, not a bare OAuth client.

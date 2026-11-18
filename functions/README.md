@@ -247,7 +247,8 @@ URL-based credential sources, or alternate impersonation endpoints.
 cannot override it.
 
 The audit checks the issued access token's email with Google's token-info
-endpoint before constructing Firestore. The token requests datastore access
+endpoint and requires `email_verified` to be `true` or `"true"` before
+constructing Firestore. The token requests datastore access
 and the email scope needed for this check. Firestore receives the verified
 client explicitly via GoogleAuth, with no second ADC lookup. The Firestore
 resource project and both credentials' quota project are pinned to

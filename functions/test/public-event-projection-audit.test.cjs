@@ -227,8 +227,7 @@ test('preflight rejects missing, production, unexpected, and emulator targets', 
 });
 
 function mockAuthentication({
-  email = AUDIT_IDENTITY,
-  emailVerified = true,
+  tokenInfo = { email: AUDIT_IDENTITY, email_verified: true },
   token = 'test-access-token',
   tokenError,
 } = {}) {
@@ -255,7 +254,7 @@ function mockAuthentication({
     async getTokenInfo(accessToken) {
       assert.equal(accessToken, token);
       calls.push('verify token');
-      return { email, email_verified: emailVerified };
+      return tokenInfo;
     }
   }
   return {
@@ -325,9 +324,8 @@ test('invalid configurations fail before any auth client is constructed', async 
 test('missing tokens and unverified principals block Firestore initialization', async () => {
   for (const options of [
     { token: null },
-    { email: null },
-    { email: 'unexpected@example.com' },
-    { emailVerified: false },
+    { tokenInfo: { email_verified: true } },
+    { tokenInfo: { email: 'unexpected@example.com', email_verified: true } },
     { tokenError: new Error('token exchange denied') },
   ]) {
     const { deps } = mockAuthentication(options);
@@ -339,6 +337,37 @@ test('missing tokens and unverified principals block Firestore initialization', 
     await assert.rejects(
       createFirestoreClient(IMPERSONATED_CONFIG, { ...deps, FirestoreClass: UnexpectedFirestore }),
       options.tokenError ?? /Staging audit identity could not be verified/,
+    );
+  }
+});
+
+test('only explicit Boolean or string true verifies the staging token email', async () => {
+  class FakeFirestore {}
+
+  for (const email_verified of [true, 'true']) {
+    const { deps } = mockAuthentication({ tokenInfo: { email: AUDIT_IDENTITY, email_verified } });
+    const firestore = await createFirestoreClient(IMPERSONATED_CONFIG, {
+      ...deps, FirestoreClass: FakeFirestore,
+    });
+    assert.ok(firestore instanceof FakeFirestore);
+  }
+
+  class UnexpectedFirestore {
+    constructor() {
+      assert.fail('Firestore must not be constructed');
+    }
+  }
+  for (const tokenInfo of [
+    { email: AUDIT_IDENTITY },
+    ...[false, 'false', null, 1, 'TRUE'].map(email_verified => ({
+      email: AUDIT_IDENTITY, email_verified,
+    })),
+  ]) {
+    const { deps } = mockAuthentication({ tokenInfo });
+    await assert.rejects(
+      createFirestoreClient(IMPERSONATED_CONFIG, { ...deps, FirestoreClass: UnexpectedFirestore }),
+      /Staging audit identity could not be verified/,
+      JSON.stringify(tokenInfo),
     );
   }
 });
