@@ -1,5 +1,5 @@
 import { FieldPath, Timestamp, type DocumentData } from 'firebase-admin/firestore';
-import { buildPublicEventProjection } from './public-event-projection';
+import { buildPublicEventProjection } from './public-event-projection-builder';
 import { validCatalogLocation } from './location-catalog';
 
 const PAGE_SIZE = 100;
