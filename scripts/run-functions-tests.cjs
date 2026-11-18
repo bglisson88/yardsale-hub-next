@@ -62,7 +62,9 @@ switch (mode) {
     // This test loads the production candidate into the disposable Firestore emulator.
     args = [
       '--test',
+      '--test-concurrency=1',
       'functions/test/event-consent.integration.test.cjs',
+      'functions/test/rate-limit.integration.test.cjs',
     ];
     break;
   }
