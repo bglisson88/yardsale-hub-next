@@ -47,9 +47,13 @@ async function anonymousLookup(data) {
       signal: AbortSignal.timeout(10_000),
     },
   );
+  assert.ok(
+    response.headers.get('content-type')?.includes('application/json'),
+    `Unexpected HTTP ${response.status}: expected a JSON callable response`,
+  );
   const body = await response.json();
   if (Object.hasOwn(body, 'error')) {
-    assert.equal(response.ok, false);
+    assert.equal(response.ok, false, `Unexpected HTTP ${response.status} with callable error`);
     assert.equal(typeof body.error.status, 'string');
     assert.equal(typeof body.error.message, 'string');
     const error = new Error(body.error.message);
@@ -57,7 +61,7 @@ async function anonymousLookup(data) {
     if (Object.hasOwn(body.error, 'details')) error.details = body.error.details;
     throw error;
   }
-  assert.equal(response.ok, true);
+  assert.equal(response.ok, true, `Unexpected HTTP ${response.status} without callable error`);
   assert.ok(Object.hasOwn(body, 'result'), 'callable response must contain a result');
   return { data: body.result };
 }
@@ -164,7 +168,7 @@ after(async () => {
 
 test('scoped username callable works with candidate Rules without broadening profile reads', {
   timeout: 120_000,
-}, async () => {
+}, async t => {
   const owner = client('owner', `owner-${randomUUID()}`);
   const outsider = client('outsider', `outsider-${randomUUID()}`);
   const anonymous = client('anonymous', null);
@@ -251,6 +255,7 @@ test('scoped username callable works with candidate Rules without broadening pro
 
   const anonymousItem = await getDocFromServer(doc(anonymous.firestore, 'items', itemId));
   assert.equal(anonymousItem.get('title'), 'Public item');
+  const anonymousQuotaDeadline = performance.now() + 45_000;
   const itemUsername = await anonymous.lookup({ mode: 'item', itemId });
   assert.deepEqual(itemUsername.data, { username: 'seller_user' });
   assert.deepEqual(Object.keys(itemUsername.data), ['username']);
@@ -324,17 +329,41 @@ test('scoped username callable works with candidate Rules without broadening pro
     mode: 'conversation', messageId: unrelatedMessageId,
   })).data, { username: null });
 
-  const abuseAttempts = await Promise.allSettled(Array.from({ length: 130 }, () =>
-    anonymous.lookup({ mode: 'item', itemId }),
-  ));
-  const quotaFailures = abuseAttempts.filter(result => result.status === 'rejected');
-  assert.ok(abuseAttempts.some(result => result.status === 'fulfilled'));
-  for (const result of quotaFailures) {
-    assert.equal(result.reason.code, 'functions/resource-exhausted');
-    assert.equal(result.reason.message, 'Too many username lookups. Please try again later.');
+  let successfulAttempts = 0;
+  let quotaReached = false;
+  // Sequential requests encourage worker reuse; the quota is process-local.
+  for (let attempt = 1; attempt <= 130; attempt++) {
+    assert.ok(
+      performance.now() < anonymousQuotaDeadline,
+      `Quota deadline exceeded after ${successfulAttempts} successful sequential requests; ` +
+        'worker reuse or the 60-second window could not be verified',
+    );
+    let result;
+    try {
+      result = await anonymous.lookup({ mode: 'item', itemId });
+    } catch (error) {
+      const diagnostic = `Attempt ${attempt}, successes ${successfulAttempts}: ` +
+        `${error.name} (${error.code}): ${error.message}`;
+      t.diagnostic(diagnostic);
+      assert.notEqual(error.name, 'TimeoutError', `HTTP timeout is not quota exhaustion. ${diagnostic}`);
+      assert.notEqual(
+        error.message, 'Username lookup is temporarily rate limited.',
+        `Missing IP identity or bucket capacity failure is not quota exhaustion. ${diagnostic}`,
+      );
+      assert.equal(error.code, 'functions/resource-exhausted', diagnostic);
+      assert.equal(
+        error.message, 'Too many username lookups. Please try again later.', diagnostic,
+      );
+      quotaReached = true;
+      break;
+    }
+    assert.deepEqual(result.data, { username: 'seller_user' });
+    successfulAttempts++;
   }
+  assert.ok(successfulAttempts > 0, 'sequential lookups must succeed before quota exhaustion');
   assert.ok(
-    quotaFailures.length > 0,
-    'anonymous item lookups from one source must be rate limited',
+    quotaReached,
+    `No quota exhaustion after ${successfulAttempts} sequential requests; ` +
+      'emulator worker reuse must be verified',
   );
 });
