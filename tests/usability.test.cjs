@@ -30,9 +30,15 @@ test('return destinations stay local and cannot loop back to authentication', ()
 });
 
 test('successful sign-in initializes the profile before replacing the return destination', async () => {
+  const searchParams = Promise.resolve({ returnTo: '/events/new' });
+  const resolvedSearchParams = await searchParams;
   const states = [], actions = [];
   let cursor = 0, tree;
   const hooks = {
+    use(value) {
+      assert.equal(value, searchParams);
+      return resolvedSearchParams;
+    },
     useState(initial) {
       const index = cursor++;
       if (!(index in states)) states[index] = initial;
@@ -55,7 +61,7 @@ test('successful sign-in initializes the profile before replacing the return des
     'react-hot-toast': { __esModule: true, default: { success() {}, error: message => actions.push(['error', message]) } },
   };
   const Login = load('src/app/auth/login/page.tsx', imports).default;
-  function render() { cursor = 0; tree = Login({ searchParams: { returnTo: '/events/new' } }); }
+  function render() { cursor = 0; tree = Login({ searchParams }); }
   function find(predicate, node = tree) {
     if (!node || typeof node !== 'object') return undefined;
     if (predicate(node)) return node;
@@ -67,6 +73,82 @@ test('successful sign-in initializes the profile before replacing the return des
   render();
   await find(node => node.type === 'form').props.onSubmit({ preventDefault() {} });
   assert.deepEqual(actions, [['profile', profile], ['redirect', '/events/new']]);
+});
+
+test('edit routes await promised IDs and preserve form reset keys', async () => {
+  for (const [kind, component, prop] of [
+    ['items', 'ItemForm', 'itemId'],
+    ['events', 'EventForm', 'eventId'],
+  ]) {
+    const Form = () => null;
+    const Page = load(`src/app/${kind}/[id]/edit/page.tsx`, {
+      [`@/components/${component}`]: { __esModule: true, default: Form },
+    }).default;
+    for (const id of ['first', 'second']) {
+      const element = await Page({ params: Promise.resolve({ id }) });
+      assert.equal(element.type, Form);
+      assert.equal(element.props[prop], id);
+      assert.equal(element.key, id);
+    }
+  }
+});
+
+test('browse unwraps promised filters and keeps the first repeated query value', async () => {
+  const { PassThrough } = require('node:stream');
+  const { renderToPipeableStream } = require('react-dom/server');
+  const Browse = load('src/app/items/page.tsx', {
+    react: React,
+    '@/hooks': {
+      useItems: () => ({ items: [], loading: false }),
+      useAuthContext: () => ({ user: null }),
+    },
+    '@/components': {
+      LoadingSpinner: () => null,
+      EmptyState: () => React.createElement('span', null, 'No items found'),
+    },
+    '@/lib/categories': load('src/lib/categories.ts'),
+    '@/lib/discovery': { DISCOVERY_GROUPS: {}, matchesItem: () => true },
+    '@/components/CategoryFields': { __esModule: true, default: () => null },
+    'next/link': { __esModule: true, default: 'a' },
+    'next/image': { __esModule: true, default: 'img' },
+  }).default;
+  const html = await new Promise((resolve, reject) => {
+    const output = new PassThrough();
+    let markup = '';
+    output.on('data', chunk => { markup += chunk; });
+    output.on('end', () => resolve(markup));
+    output.on('error', reject);
+    const stream = renderToPipeableStream(React.createElement(Browse, {
+      searchParams: Promise.resolve({ search: ['desk', 'ignored'], location: 'Synthetic City' }),
+    }), {
+      onAllReady() { stream.pipe(output); },
+      onError: reject,
+    });
+  });
+  assert.match(html, /name="search"[^>]*value="desk"/);
+  assert.match(html, /name="location"[^>]*value="Synthetic City"/);
+  assert.ok(!html.includes('ignored'));
+});
+
+test('image optimization resizes synthetic PNGs and rejects disguised SVG input', async () => {
+  const sharp = require('sharp');
+  const { imageOptimizer } = require('next/dist/server/image-optimizer');
+  const { defaultConfig } = require('next/dist/server/config-shared');
+  const params = { href: '/synthetic.png', width: 2, quality: 75, mimeType: 'image/png' };
+  const png = await sharp({
+    create: { width: 4, height: 4, channels: 3, background: '#ffffff' },
+  }).png().toBuffer();
+  const optimized = await imageOptimizer(
+    { buffer: png, etag: 'synthetic' }, params, defaultConfig, { silent: true },
+  );
+  assert.equal((await sharp(optimized.buffer).metadata()).width, 2);
+  for (const prefix of ['', '<!--ftypavif-->']) {
+    const svg = Buffer.from(`${prefix}<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>`);
+    await assert.rejects(
+      imageOptimizer({ buffer: svg, etag: 'synthetic' }, params, defaultConfig, { silent: true }),
+      error => error.statusCode === 400 && error.message.includes('image type is not allowed'),
+    );
+  }
 });
 
 test('dashboard collections query only the signed-in owner and include sold items and past events', () => {

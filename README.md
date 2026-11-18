@@ -1,6 +1,6 @@
 # YardSale Hub - Next.js Edition
 
-A modern, full-featured marketplace for discovering and organizing local yard sales. Built with Next.js 14, Firebase, and Tailwind CSS.
+A modern, full-featured marketplace for discovering and organizing local yard sales. Built with Next.js 15, Firebase, and Tailwind CSS.
 
 ## Features
 
@@ -16,7 +16,7 @@ A modern, full-featured marketplace for discovering and organizing local yard sa
 
 ## Tech Stack
 
-- **Frontend**: Next.js 14, React 18, TypeScript
+- **Frontend**: Next.js 15, React 19, TypeScript
 - **Styling**: Tailwind CSS
 - **Backend**: Firebase (Auth, Firestore, Storage)
 - **Deployment**: Vercel
@@ -24,11 +24,16 @@ A modern, full-featured marketplace for discovering and organizing local yard sa
 - **State Management**: Zustand
 - **Notifications**: React Hot Toast
 
+Next.js and its ESLint configuration are pinned together for reviewed upgrades.
+Sharp is pinned to a patched image-optimizer version; keep that pin when updating
+the framework. App Router page parameters are promises: server pages await them
+and client pages unwrap them with React `use`.
+
 ## Getting Started
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 22 (matches Functions and CI)
 - npm or yarn
 - Firebase project (create at https://firebase.google.com)
 

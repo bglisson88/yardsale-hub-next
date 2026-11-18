@@ -40,6 +40,7 @@ const listing = {
 };
 
 function harness({ id = 'chair', user = null, authLoading = false } = {}) {
+  const params = Promise.resolve({ id });
   const states = [];
   const effects = [];
   const listeners = [];
@@ -51,6 +52,10 @@ function harness({ id = 'chair', user = null, authLoading = false } = {}) {
   const { default: Page } = load('src/app/items/[id]/page.tsx', {
     react: {
       ...React,
+      use(value) {
+        assert.equal(value, params);
+        return { id };
+      },
       useState(initial) {
         const index = cursor++;
         if (!(index in states)) states[index] = typeof initial === 'function' ? initial() : initial;
@@ -89,7 +94,7 @@ function harness({ id = 'chair', user = null, authLoading = false } = {}) {
       },
     },
   });
-  const wrapper = Page({ params: { id } });
+  const wrapper = Page({ params });
   function render() {
     cursor = effectCursor = 0;
     tree = wrapper.type(wrapper.props);

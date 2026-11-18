@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { ArrowLeft, MapPin, Package } from 'lucide-react';
@@ -16,8 +16,9 @@ type ListingState =
   | { status: 'loading' | 'missing' | 'error' }
   | { status: 'ready'; item: ItemDetails };
 
-export default function ItemPage({ params }: { params: { id: string } }) {
-  return <ItemDetail key={params.id} id={params.id} />;
+export default function ItemPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+  return <ItemDetail key={id} id={id} />;
 }
 
 function ItemDetail({ id }: { id: string }) {

@@ -1,5 +1,6 @@
 import ItemForm from '@/components/ItemForm';
 
-export default function EditItemPage({ params }: { params: { id: string } }) {
-  return <ItemForm key={params.id} itemId={params.id} />;
+export default async function EditItemPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  return <ItemForm key={id} itemId={id} />;
 }

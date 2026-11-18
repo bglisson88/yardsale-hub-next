@@ -5,15 +5,17 @@ import { LoadingSpinner, EmptyState } from '@/components';
 import { Heart } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { useState } from 'react';
+import { use, useState } from 'react';
 import { categoryLabel, subcategoryLabel } from '@/lib/categories';
 import { DISCOVERY_GROUPS, matchesItem, type BrowseParams } from '@/lib/discovery';
 import ListingCategoryFields from '@/components/CategoryFields';
 
-export default function Browse({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
+export default function Browse({ searchParams }: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { items, loading } = useItems();
   const params: BrowseParams = Object.fromEntries(
-    Object.entries(searchParams).map(([key, value]) => [key, Array.isArray(value) ? value[0] : value]),
+    Object.entries(use(searchParams)).map(([key, value]) => [key, Array.isArray(value) ? value[0] : value]),
   );
   return <BrowseResults key={JSON.stringify(params)} params={params} items={items} loading={loading} />;
 }

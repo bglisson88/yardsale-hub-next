@@ -386,8 +386,8 @@ test('create auth gates the form while loading and redirects signed-out users on
 test('create HTML retains required title/price and image picker hints with required taxonomy', async () => {
   const form = await renderItemForm();
   const html = form.html();
-  assert.match(html, /name="title" required=""/);
-  assert.match(html, /name="price" required="" step="0.01"/);
+  assert.match(html, /<input(?=[^>]*name="title")(?=[^>]*required="")[^>]*>/);
+  assert.match(html, /<input(?=[^>]*name="price")(?=[^>]*required="")(?=[^>]*step="0.01")[^>]*>/);
   assert.match(html, /name="category" required=""/);
   assert.match(html, /name="subcategory" required=""/);
   assert.match(html, /type="file" multiple="" accept="image\/\*"/);
