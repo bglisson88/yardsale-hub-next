@@ -11,7 +11,10 @@ import { useAuthContext } from '@/hooks';
 import { useAuthStore } from '@/store';
 import { Avatar } from './Avatar';
 import { Logo } from './Logo';
-import { getMyPublicUsername } from '@/lib/public-profile';
+import {
+  getMyPublicUsername,
+  subscribePublicUsernameInvalidation,
+} from '@/lib/public-profile';
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
@@ -38,13 +41,19 @@ export function Navbar() {
     const uid = user.id;
     let active = true;
 
-    getMyPublicUsername().then(username => {
-      if (active) setPublicProfileName(username ? { uid, username } : null);
-    }).catch(() => {
-      if (active) setPublicProfileName(null);
-    });
+    const refreshUsername = () => {
+      setPublicProfileName(null);
+      getMyPublicUsername().then(username => {
+        if (active) setPublicProfileName(username ? { uid, username } : null);
+      }).catch(() => {
+        if (active) setPublicProfileName(null);
+      });
+    };
+    const unsubscribe = subscribePublicUsernameInvalidation(refreshUsername);
+    refreshUsername();
     return () => {
       active = false;
+      unsubscribe();
     };
   }, [user?.id]);
 

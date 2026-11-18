@@ -132,6 +132,28 @@ test('rename invalidation causes the next self lookup to fetch the current usern
   assert.equal(await updatedLookup, 'new_name');
 });
 
+test('bounds retained cache entries and notifies mounted username consumers on invalidation', async () => {
+  const app = createHarness();
+  let notifications = 0;
+  const unsubscribe = app.lib.subscribePublicUsernameInvalidation(() => notifications++);
+
+  for (let index = 0; index < 257; index++) {
+    const lookup = app.lib.getItemSellerUsername(`item-${index}`);
+    app.resolve(index, `seller_${index}`);
+    await lookup;
+  }
+  const firstItemLookup = app.lib.getItemSellerUsername('item-0');
+  assert.equal(app.calls.length, 258);
+  app.resolve(257, 'seller_0');
+  await firstItemLookup;
+
+  app.lib.invalidatePublicUsernameCache();
+  assert.equal(notifications, 1);
+  unsubscribe();
+  app.lib.invalidatePublicUsernameCache();
+  assert.equal(notifications, 1);
+});
+
 test('uses scoped lookup modes and returns null on callable errors', async () => {
   const app = createHarness();
   const itemLookup = app.lib.getItemSellerUsername('public-item');

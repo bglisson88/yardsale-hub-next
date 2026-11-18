@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import { Timestamp, getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { canonicalizeUsername } from './username';
@@ -85,6 +86,37 @@ function consumeLookupLimit(key: string, now = Date.now()): void {
   bucket.count++;
 }
 
+function anonymousRateLimitKey(ip: unknown): string | null {
+  if (typeof ip !== 'string') return null;
+  let address = ip.split('%')[0].trim().toLowerCase();
+  if (isIP(address) === 0) return null;
+  if (isIP(address) === 4) return `ip4:${address}`;
+
+  const ipv4Tail = /(\d{1,3}(?:\.\d{1,3}){3})$/.exec(address)?.[1];
+  if (ipv4Tail) {
+    const [a, b, c, d] = ipv4Tail.split('.').map(Number);
+    const high = ((a << 8) | b).toString(16);
+    const low = ((c << 8) | d).toString(16);
+    address = `${address.slice(0, -ipv4Tail.length)}${high}:${low}`;
+  }
+
+  let groups = address.split(':');
+  if (address.includes('::')) {
+    const split = address.split('::');
+    const left = split[0] ? split[0].split(':') : [];
+    const right = split[1] ? split[1].split(':') : [];
+    groups = [...left, ...Array(8 - left.length - right.length).fill('0'), ...right];
+  }
+  if (groups.length !== 8) return null;
+  groups = groups.map(group => group.padStart(4, '0'));
+  if (groups.slice(0, 5).every(group => group === '0000') && groups[5] === 'ffff') {
+    const high = Number.parseInt(groups[6], 16);
+    const low = Number.parseInt(groups[7], 16);
+    return `ip4:${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`;
+  }
+  return `ip6:${groups.slice(0, 4).join(':')}/64`;
+}
+
 function validPublicUsername(data: unknown): string | null {
   if (!isRecord(data) || !hasExactKeys(data, PROFILE_FIELDS)) return null;
   let username: string;
@@ -151,13 +183,32 @@ async function resolveTargetUid(
       }
       const messageSnapshot = await firestore.collection('messages').doc(request.messageId).get();
       const message = messageSnapshot.data();
-      return messageSnapshot.exists &&
-        message?.senderId === callerUid &&
-        typeof message.recipientId === 'string' &&
-        IDENTIFIER.test(message.recipientId) &&
-        message.recipientId !== callerUid
-        ? message.recipientId
-        : null;
+      if (!messageSnapshot.exists || !message) return null;
+
+      if (
+        message.recipientId === callerUid &&
+        typeof message.senderId === 'string' &&
+        IDENTIFIER.test(message.senderId) &&
+        message.senderId !== callerUid
+      ) {
+        return message.senderId;
+      }
+
+      if (
+        message.senderId !== callerUid ||
+        typeof message.recipientId !== 'string' ||
+        !IDENTIFIER.test(message.recipientId) ||
+        message.recipientId === callerUid
+      ) {
+        return null;
+      }
+
+      const partnerReply = await firestore.collection('messages')
+        .where('senderId', '==', message.recipientId)
+        .where('recipientId', '==', callerUid)
+        .limit(1)
+        .get();
+      return partnerReply.empty ? null : message.recipientId;
     }
   }
 }
@@ -177,11 +228,11 @@ export const getPublicUsername = onCall(profileCallableOptions, async request =>
   if (callerUid) {
     rateLimitKey = `uid:${callerUid}`;
   } else {
-    const ip = request.rawRequest.ip;
-    if (typeof ip !== 'string' || ip.length === 0) {
+    const ipKey = anonymousRateLimitKey(request.rawRequest.ip);
+    if (!ipKey) {
       throw new HttpsError('resource-exhausted', 'Username lookup is temporarily rate limited.');
     }
-    rateLimitKey = `ip:${ip}`;
+    rateLimitKey = ipKey;
   }
   consumeLookupLimit(rateLimitKey);
 

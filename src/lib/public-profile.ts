@@ -11,9 +11,11 @@ type LookupResponse = { username: string | null };
 type CacheEntry = { username: string | null; expiresAt: number };
 
 const CACHE_TTL_MS = 30_000;
+const MAX_CACHE_ENTRIES = 256;
 const USERNAME_PATTERN = /^[a-z0-9_]{3,20}$/;
 const cache = new Map<string, CacheEntry>();
 const inFlight = new Map<string, Promise<string | null>>();
+const invalidationListeners = new Set<() => void>();
 let authUid = auth.currentUser?.uid ?? null;
 let generation = 0;
 
@@ -33,13 +35,32 @@ onAuthStateChanged(auth, user => {
 
 export function invalidatePublicUsernameCache(): void {
   clearCache();
+  for (const listener of invalidationListeners) listener();
+}
+
+export function subscribePublicUsernameInvalidation(listener: () => void): () => void {
+  invalidationListeners.add(listener);
+  return () => invalidationListeners.delete(listener);
+}
+
+function cacheUsername(key: string, username: string | null): void {
+  cache.delete(key);
+  cache.set(key, { username, expiresAt: Date.now() + CACHE_TTL_MS });
+  if (cache.size > MAX_CACHE_ENTRIES) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey !== undefined) cache.delete(oldestKey);
+  }
 }
 
 async function lookupUsername(input: LookupRequest): Promise<string | null> {
   const callerUid = auth.currentUser?.uid ?? null;
   const key = `${callerUid ?? 'anonymous'}:${JSON.stringify(input)}`;
   const cached = cache.get(key);
-  if (cached && cached.expiresAt > Date.now()) return cached.username;
+  if (cached && cached.expiresAt > Date.now()) {
+    cache.delete(key);
+    cache.set(key, cached);
+    return cached.username;
+  }
   if (cached) cache.delete(key);
 
   const existing = inFlight.get(key);
@@ -56,7 +77,7 @@ async function lookupUsername(input: LookupRequest): Promise<string | null> {
       ? result.data.username
       : null;
     if (generation === requestGeneration) {
-      cache.set(key, { username, expiresAt: Date.now() + CACHE_TTL_MS });
+      cacheUsername(key, username);
     }
     return username;
   }).finally(() => {

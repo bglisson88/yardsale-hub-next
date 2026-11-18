@@ -34,6 +34,27 @@ function fakeFirestore(records = new Map()) {
             },
           };
         },
+        where(field, _operator, value) {
+          const filters = [];
+          const query = {
+            where(nextField, _nextOperator, nextValue) {
+              filters.push([nextField, nextValue]);
+              return query;
+            },
+            limit() {
+              return query;
+            },
+            async get() {
+              reads.push(`${name}:query`);
+              const matches = [...records.entries()].filter(([path, data]) =>
+                path.startsWith(`${name}/`) &&
+                filters.every(([key, expected]) => data[key] === expected));
+              return { empty: matches.length === 0, docs: matches };
+            },
+          };
+          filters.push([field, value]);
+          return query;
+        },
       };
     },
   };
@@ -149,7 +170,36 @@ test('item mode returns null for missing or malformed public items and never acc
   }, null, '198.51.100.12')), { username: null });
 });
 
-test('conversation lookup resolves only a recipient from a message sent by the caller', async t => {
+test('conversation lookup accepts either participant direction but requires a real relationship', async t => {
+  const caller = `caller-${randomUUID()}`;
+  const recipient = `recipient-${randomUUID()}`;
+  const database = fakeFirestore(new Map([
+    ['messages/outgoing-message', { senderId: caller, recipientId: recipient }],
+    ['messages/incoming-reply', { senderId: recipient, recipientId: caller }],
+    ['messages/unrelated-message', { senderId: `unrelated-${caller}`, recipientId: recipient }],
+    [`publicProfiles/${recipient}`, profile()],
+    ['usernameClaims/seller_1', { uid: recipient }],
+  ]));
+  mockDatabase(t, database);
+
+  assert.deepEqual(await getPublicUsername.run(request({
+    mode: 'conversation', messageId: 'outgoing-message',
+  }, caller)), { username: 'seller_1' });
+  assert.deepEqual(await getPublicUsername.run(request({
+    mode: 'conversation', messageId: 'incoming-reply',
+  }, caller)), { username: 'seller_1' });
+
+  database.reads.length = 0;
+  assert.deepEqual(await getPublicUsername.run(request({
+    mode: 'conversation', messageId: 'outgoing-message',
+  }, `not-${caller}`)), { username: null });
+  assert.deepEqual(database.reads, ['messages/outgoing-message']);
+  assert.deepEqual(await getPublicUsername.run(request({
+    mode: 'conversation', messageId: 'unrelated-message',
+  }, caller)), { username: null });
+});
+
+test('a caller-authored message without independent partner participation cannot resolve a username', async t => {
   const caller = `caller-${randomUUID()}`;
   const recipient = `recipient-${randomUUID()}`;
   const database = fakeFirestore(new Map([
@@ -161,13 +211,8 @@ test('conversation lookup resolves only a recipient from a message sent by the c
 
   assert.deepEqual(await getPublicUsername.run(request({
     mode: 'conversation', messageId: 'outgoing-message',
-  }, caller)), { username: 'seller_1' });
-
-  database.reads.length = 0;
-  assert.deepEqual(await getPublicUsername.run(request({
-    mode: 'conversation', messageId: 'outgoing-message',
-  }, `not-${caller}`)), { username: null });
-  assert.deepEqual(database.reads, ['messages/outgoing-message']);
+  }, caller)), { username: null });
+  assert.deepEqual(database.reads, ['messages/outgoing-message', 'messages:query']);
 });
 
 test('missing, deleted, malformed or unclaimed profiles return only null', async t => {
@@ -217,6 +262,32 @@ test('throttles anonymous item lookups per source IP and fails closed when IP is
       auth: null,
       rawRequest: {},
     }),
+    'resource-exhausted',
+  );
+});
+
+test('groups anonymous IPv6 clients by /64 and normalizes IPv4-mapped addresses', async t => {
+  const database = fakeFirestore();
+  mockDatabase(t, database);
+  const firstAddress = '2001:db8:abcd:1234::1';
+  const rotatedAddress = '2001:db8:abcd:1234::ffff';
+
+  for (let attempt = 0; attempt < 120; attempt++) {
+    await getPublicUsername.run(request({ mode: 'item', itemId: 'missing' }, null, firstAddress));
+  }
+  await assertCallableError(
+    getPublicUsername.run(request({ mode: 'item', itemId: 'missing' }, null, rotatedAddress)),
+    'resource-exhausted',
+  );
+  for (let attempt = 0; attempt < 120; attempt++) {
+    await getPublicUsername.run(request(
+      { mode: 'item', itemId: 'missing' }, null, '::ffff:203.0.113.1',
+    ));
+  }
+  await assertCallableError(
+    getPublicUsername.run(request(
+      { mode: 'item', itemId: 'missing' }, null, '203.0.113.1',
+    )),
     'resource-exhausted',
   );
 });

@@ -11,8 +11,8 @@ const { initializeApp, deleteApp } = require('firebase/app');
 const { connectAuthEmulator, createUserWithEmailAndPassword, getAuth } = require('firebase/auth');
 const { connectFunctionsEmulator, getFunctions, httpsCallable } = require('firebase/functions');
 const {
-  collection, connectFirestoreEmulator, doc, getDocFromServer, getDocsFromServer,
-  getFirestore,
+  Timestamp: WebTimestamp, collection, connectFirestoreEmulator, doc, getDocFromServer,
+  getDocsFromServer, getFirestore, setDoc,
 } = require('firebase/firestore');
 
 const PROJECT_ID = 'demo-yardsale-hub';
@@ -144,7 +144,11 @@ test('scoped username callable works with candidate Rules without broadening pro
   const itemId = `item-${randomUUID()}`;
   const missingProfileItemId = `missing-${randomUUID()}`;
   const ownerMessageId = `message-${randomUUID()}`;
+  const replyMessageId = `message-${randomUUID()}`;
+  const unansweredMessageId = `message-${randomUUID()}`;
   const unrelatedMessageId = `message-${randomUUID()}`;
+  const forgedMessageId = `message-${randomUUID()}`;
+  const forgedTargetUid = `target-${randomUUID()}`;
   const privateEmail = 'private@example.test';
   const memberSince = Timestamp.fromMillis(1);
   fixturePaths.push(
@@ -154,12 +158,17 @@ test('scoped username callable works with candidate Rules without broadening pro
     `usernameClaims/seller_user`,
     `publicProfiles/malformed-${sellerUid}`,
     `usernameClaims/bad_user`,
+    `publicProfiles/${forgedTargetUid}`,
+    `usernameClaims/target_user`,
     `users/${ownerUid}`,
     `items/${itemId}`,
     `items/${missingProfileItemId}`,
     `items/malformed-${itemId}`,
     `messages/${ownerMessageId}`,
+    `messages/${replyMessageId}`,
+    `messages/${unansweredMessageId}`,
     `messages/${unrelatedMessageId}`,
+    `messages/${forgedMessageId}`,
   );
 
   await Promise.all([
@@ -178,6 +187,12 @@ test('scoped username callable works with candidate Rules without broadening pro
     adminFirestore.collection('usernameClaims').doc('bad_user').set({
       uid: `malformed-${sellerUid}`,
     }),
+    adminFirestore.collection('publicProfiles').doc(forgedTargetUid).set({
+      username: 'target_user', displayName: 'target_user', photoURL: null, memberSince,
+    }),
+    adminFirestore.collection('usernameClaims').doc('target_user').set({
+      uid: forgedTargetUid,
+    }),
     adminFirestore.collection('users').doc(ownerUid).set({
       email: privateEmail, displayName: 'Private owner name', location: 'Private city',
       bio: 'Private biography', photoURL: 'https://example.test/private.jpg',
@@ -193,6 +208,12 @@ test('scoped username callable works with candidate Rules without broadening pro
     }),
     adminFirestore.collection('messages').doc(ownerMessageId).set({
       senderId: ownerUid, recipientId: sellerUid,
+    }),
+    adminFirestore.collection('messages').doc(replyMessageId).set({
+      senderId: sellerUid, recipientId: ownerUid,
+    }),
+    adminFirestore.collection('messages').doc(unansweredMessageId).set({
+      senderId: ownerUid, recipientId: forgedTargetUid,
     }),
     adminFirestore.collection('messages').doc(unrelatedMessageId).set({
       senderId: outsiderUid, recipientId: sellerUid,
@@ -224,6 +245,22 @@ test('scoped username callable works with candidate Rules without broadening pro
   assert.deepEqual((await owner.lookup({
     mode: 'conversation', messageId: ownerMessageId,
   })).data, { username: 'seller_user' });
+  assert.deepEqual((await owner.lookup({
+    mode: 'conversation', messageId: replyMessageId,
+  })).data, { username: 'seller_user' });
+  assert.deepEqual((await owner.lookup({
+    mode: 'conversation', messageId: unansweredMessageId,
+  })).data, { username: null });
+  await setDoc(doc(owner.firestore, 'messages', forgedMessageId), {
+    senderId: ownerUid,
+    recipientId: forgedTargetUid,
+    text: 'synthetic message to an unrelated account',
+    createdAt: WebTimestamp.fromMillis(1),
+    read: false,
+  });
+  assert.deepEqual((await owner.lookup({
+    mode: 'conversation', messageId: forgedMessageId,
+  })).data, { username: null });
   assert.deepEqual((await outsider.lookup({
     mode: 'conversation', messageId: ownerMessageId,
   })).data, { username: null });

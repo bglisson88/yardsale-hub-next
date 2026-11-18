@@ -325,13 +325,14 @@ The production-candidate Rules deny direct client reads of
 The shared username helper caches results for 30 seconds, deduplicates
 in-flight calls, scopes cache entries to the signed-in UID, and clears cached
 values on account changes/sign-out. The helper is also used for the signed-in
-user's own profile and message partners; message lookups require a qualifying
-outgoing message. A successful username rename invalidates the local cache.
-Other open pages no longer receive realtime profile snapshots: they see a
-rename the next time they request the username after the cache expires, such
-as on navigation or remount. Seller identity remains associated with the
-current item so an earlier seller's username is not displayed after a seller
-change.
+user's own profile and message partners. A message sent by the caller is
+eligible only after the partner replies; a message received from the partner
+is itself a qualifying relationship. A successful username rename invalidates
+the local cache and refreshes the mounted Navbar. Other open pages no longer
+receive realtime profile snapshots: they see a rename the next time they
+request the username after the cache expires, such as on navigation or
+remount. Seller identity remains associated with the current item so an
+earlier seller's username is not displayed after a seller change.
 
 The page does not retrieve or display private seller email or street-address
 fields. Only the signed-in owner sees the Edit Listing link; the edit page

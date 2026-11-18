@@ -35,24 +35,30 @@ the current username does not change the cooldown.
 Clients do not read `publicProfiles` directly. The `getPublicUsername`
 callable returns only `{ username: string | null }` and supports three
 strictly scoped modes: authenticated self lookup, lookup of the seller derived
-from an existing public item ID, and authenticated conversation-partner lookup
-derived from a message sent by the caller. It never accepts an arbitrary
-target UID. Missing, deleted, malformed, or unclaimed profiles return null.
-The callable validates the exact stored public-profile fields and matching
-username claim before returning a username.
+from an existing public item ID, and authenticated conversation-partner
+lookup. Incoming messages qualify only when sent by the partner to the caller;
+caller-sent messages require an independent reply from the partner. This
+prevents a caller-created message to an arbitrary UID from enabling a lookup.
+The callable never accepts an arbitrary target UID. Missing, deleted,
+malformed, or unclaimed profiles return null. It validates the exact stored
+public-profile fields and matching username claim before returning a username.
 
 The callable applies a bounded in-memory limit of 120 valid lookups per
 minute per authenticated UID or anonymous source IP. This is best-effort per
 Functions process, not a globally shared quota; cold starts and multiple
-instances can reduce aggregate enforcement. It must not be described as a
-durable rate limit or as a substitute for App Check.
+instances can reduce aggregate enforcement. Anonymous IPv6 callers are
+bucketed by /64 and IPv4-mapped IPv6 addresses are normalized to IPv4. The
+limiter uses the platform-resolved request IP, not a caller-supplied forwarding
+header. It must not be described as a durable rate limit or as a substitute
+for App Check.
 
 The shared frontend helper caches values for 30 seconds, deduplicates
-in-flight lookups, scopes cache entries by caller UID, and clears caches on
-account changes/sign-out. A successful rename explicitly invalidates the
-current client's cache. Other clients refresh after cache expiry on their
-next lookup (for example, when navigating back to a profile-consuming view);
-they no longer receive realtime public-profile snapshots.
+in-flight lookups, scopes cache entries by caller UID, limits retained entries
+to 256, and clears caches on account changes/sign-out. A successful rename
+explicitly invalidates the current client's cache and refreshes the mounted
+Navbar. Other clients refresh after cache expiry on their next lookup (for
+example, when navigating back to a profile-consuming view); they no longer
+receive realtime public-profile snapshots.
 
 ## Profile callable runtime configuration
 

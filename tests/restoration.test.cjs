@@ -31,7 +31,10 @@ function harness(file, initialAuth = { user: null, loading: false }) {
   let currentPath = '/';
   const listeners = new Map();
   const mediaListeners = new Map();
+  const usernameInvalidationListeners = new Set();
   const pushes = [], errors = [], constraints = [], queriedCollections = [];
+  let publicUsername = 'test_neighbor';
+  let usernameLookups = 0;
   let signOutCalls = 0, rejectSignOut = false;
   const document = {
     addEventListener: (name, listener) => listeners.set(name, listener),
@@ -74,7 +77,16 @@ function harness(file, initialAuth = { user: null, loading: false }) {
     },
     'react-hot-toast': { __esModule: true, default: { error: message => errors.push(message) } },
     '@/lib/firebase': { auth: {}, db: {} },
-    '@/lib/public-profile': { getMyPublicUsername: async () => 'test_neighbor' },
+    '@/lib/public-profile': {
+      getMyPublicUsername: async () => {
+        usernameLookups++;
+        return publicUsername;
+      },
+      subscribePublicUsernameInvalidation: listener => {
+        usernameInvalidationListeners.add(listener);
+        return () => usernameInvalidationListeners.delete(listener);
+      },
+    },
     '@/hooks': {
       useAuthContext: stub,
       useItems: () => ({ items: [] }),
@@ -119,6 +131,13 @@ function harness(file, initialAuth = { user: null, loading: false }) {
   return {
     find, render, refs, pushes, errors, constraints, queriedCollections,
     get signOutCalls() { return signOutCalls; },
+    get usernameLookups() { return usernameLookups; },
+    async invalidateUsername(nextUsername) {
+      publicUsername = nextUsername;
+      for (const listener of usernameInvalidationListeners) listener();
+      await new Promise(resolve => setImmediate(resolve));
+      render();
+    },
     rejectSignOut() { rejectSignOut = true; },
     auth(next) { authState = next; render(); render(); },
     route(next) { currentPath = next; render(); render(); },
@@ -143,6 +162,21 @@ function harness(file, initialAuth = { user: null, loading: false }) {
 const user = { id: 'test-user', displayName: 'Test Neighbor', email: 'neighbor@example.test', photoURL: null };
 const account = node => node.props?.id === 'account-navigation';
 const mobile = node => node.props?.id === 'mobile-navigation';
+
+test('Navbar refreshes its username after a local rename invalidates the cache', async () => {
+  const nav = harness('src/components/Navbar.tsx', { user, loading: false });
+  await new Promise(resolve => setImmediate(resolve));
+  nav.click('Open account menu');
+  nav.render();
+  assert.match(renderToStaticMarkup(nav.find(account)), /test_neighbor/);
+  assert.equal(nav.usernameLookups, 1);
+
+  await nav.invalidateUsername('renamed_user');
+  nav.render();
+  assert.match(renderToStaticMarkup(nav.find(account)), /renamed_user/);
+  assert.equal(nav.usernameLookups, 2);
+  nav.unmount();
+});
 
 test('Sell an Item is a single desktop/mobile action regardless of auth state', () => {
   for (const auth of [{ user: null, loading: true }, { user: null, loading: false }, { user, loading: false }]) {

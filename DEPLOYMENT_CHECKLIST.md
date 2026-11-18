@@ -101,21 +101,25 @@ callable supports only self, public-item, and qualifying-conversation lookup
 modes, validates the stored profile and matching username claim, and returns
 only `{ username: string | null }`. Self identity comes from authentication;
 item mode derives the seller UID from an existing public item; conversation
-mode requires authentication and derives the partner from a message sent by
-the caller. Arbitrary UID lookup and client profile reads/listing remain
+mode requires authentication and verifies independent partner participation:
+incoming messages must be sent by the partner, while caller-sent messages need
+a partner reply. Arbitrary UID lookup and client profile reads/listing remain
 denied. The five existing consumers use a shared callable helper, while
 signup and rename continue using their existing callables.
 
 The helper caches results for 30 seconds, deduplicates in-flight calls,
-invalidates on account changes/sign-out, and is explicitly invalidated after
-the caller renames their username. Other clients do not receive realtime
+holds at most 256 entries, invalidates on account changes/sign-out, and is
+explicitly invalidated after the caller renames their username. The mounted
+Navbar refreshes on that invalidation. Other clients do not receive realtime
 rename updates; they refresh on a later username lookup after the cache TTL,
 typically by navigating back to a username-consuming view or remounting it.
 The lookup callable applies a bounded in-memory limit per authenticated UID
 or anonymous source IP. This is best-effort per Functions process, not a
 distributed quota; cold starts and multiple instances can reduce aggregate
-enforcement. It does not replace App Check or durable abuse controls, which
-require separate approval if stronger limits are needed.
+enforcement. Anonymous IPv6 addresses are grouped by /64 and the limiter uses
+the platform-resolved request IP, not a caller-supplied forwarding header. It
+does not replace App Check or durable abuse controls, which require separate
+approval if stronger limits are needed.
 
 Production deployment remains blocked pending the production event-data
 audit, remediation review, emulator and user-flow verification, IAM
