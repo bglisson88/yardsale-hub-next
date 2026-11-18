@@ -6,7 +6,7 @@ production action requires separate authorization.
 
 ## Implementation and local validation
 
-- [ ] Obtain the complete currently published production Firestore rules text.
+- [x] Obtain the complete currently published production Firestore rules text.
       Do not derive production rules from `firestore.rules` or
       `firestore.production-backup.rules`.
 - [ ] Derive production rules from that exact text, preserving owner-only
@@ -24,10 +24,38 @@ production action requires separate authorization.
       `yardsale-hub-93c49`, `us-south1`, the reviewed
       `yardsale-hub-prod-backend` identity, and the approved limits.
 
-The production rules integration is blocked until the complete published rules
-source is available. The tracked `firestore.rules` is staging-only. The
-historical production backup is not authoritative. No production rules file or
-production Firebase CLI configuration is created by this implementation.
+`firestore.production-candidate.rules` is the review-only reconciliation of
+the complete rules supplied by the production owner (baseline SHA-256:
+`190b26bdadc51e200700817a10890a6ec67c27cc7746d92c30b4132d611f5298`).
+It is **not** referenced by `firebase.json` or any deployment configuration.
+The tracked `firestore.rules` remains staging-only. The historical production
+backup is not authoritative. Run `npm run test:rules:production-candidate`
+against the local `demo-yardsale-hub` emulator, never a live project.
+
+### Production candidate permission changes
+
+| Path | Change from published production rules |
+|---|---|
+| `yardSaleEvents` | Only owners can get or query source documents; owner queries must constrain `userId`. Direct creates and edits are limited to general events with a reviewed catalog location and no inline address or coordinates. Exact creates, edits, transitions, and deletions require the consent callables. Direct owner deletion remains available for general events without a consent marker. |
+| `publicYardSaleEvents` | Public browsing and detail move to trusted server-written projections. Individual gets validate the projection schema; list queries cannot validate or redact individual documents. Client writes are denied. |
+| `generalLocations`, `generalLocationAliases` | The trusted broad-location catalog is publicly readable, never client-writable. The finite alias index remains server-only; it can authorize a legacy client display only when the matching active catalog record independently approves it. |
+| `eventPrivate` | Owner gets remain available, including an owner checking for a missing private record. Only a document get with a matching owner, an exact source event, and active revision-matched consent can disclose an address publicly. Extra private fields, empty revisions, and invalid address lengths block disclosure. No public or owner listing. Legacy general-event owners retain validated address writes; direct updates cannot overwrite revision-controlled addresses, and direct deletes cannot bypass active consent. |
+| Consent markers/history and username rate limits | Explicitly denied to all clients, as under the baseline catch-all. Only trusted backend code manages these records; limits are enforced by the callables, not by Firestore Rules. |
+| `users`, `items`, `favorites`, `reviews`, `messages`, and other paths | Existing rules and the final deny-all are unchanged. In particular, the candidate does not grant access to `publicProfiles` or add staging-only review constraints. |
+
+Before any cutover, review and provision catalog entries and aliases, migrate
+eligible legacy source events to canonical locations, and have organizers
+explicitly consent before exposing any legacy exact address. Server-write and
+review the entire projection collection before opening public lists, including
+free text: field allowlists cannot prove content is safe. Coordinate the
+projection-ready frontend and Rules cutover; old public clients reading
+`yardSaleEvents` will stop browsing and old direct exact-event writes will
+fail. Verify public-profile-dependent onboarding, seller and messaging flows
+separately: the captured baseline denies direct `publicProfiles` reads, so a
+client relying on them needs a separately reviewed compatibility decision.
+Production deployment remains blocked pending the production event-data audit,
+remediation review, emulator and user-flow verification, IAM verification,
+and separate release approvals.
 
 ## General-location catalog
 
@@ -189,9 +217,8 @@ projection availability before switching public traffic.
       general event is present but is not necessarily valid.
 - [ ] Independently verify the deployed Rules before relying on any Rules
       assessment; the tracked staging Rules are not evidence of what is
-      published in either project. Production Rules reconciliation remains
-      blocked until the complete currently published production source is
-      obtained and reviewed.
+      published in either project. Before release, re-confirm that the
+      published production rules still match the supplied baseline.
 - [ ] Use reviewed read-only credentials. The audit emits aggregates, not
       record identifiers or values; small counts can still be identifying.
       Document the approved process for investigating and remediating
@@ -258,23 +285,20 @@ Do not treat staging verification as production authorization.
    audit cannot prove that arbitrary strings are broad locations or safe.
 2. Separately authorize, provision, and review the catalog and finite alias
    index, then deploy the compatible Functions. Verify approved legacy options.
-3. Publish rules derived from the verified live production rules. Deny public
-   source gets and listing, permit anonymous list access only to the trusted-writer
-   projection collection (with schema validation on individual gets), preserve
-   owner-scoped source listing, and deny client projection writes. Direct exact
-   writes from the old website must be denied. Legacy general writes with
-   unapproved locations will be denied, including profile locations.
-4. Separately authorize and review any required projection backfill. Do not
-   infer production emptiness from collection visibility.
-5. Build and verify a preview configured for the production Firebase project.
+3. Separately authorize and review any required projection backfill while
+   public projection listing is still denied. Review the existing projection
+   collection; do not infer production emptiness from collection visibility.
+4. Build and verify a preview for the coordinated Rules and client cutover.
    Keep the existing Vercel Ignored Build Step unchanged; do not bypass it.
-6. Promote the verified preview only after confirming the dashboard action
-   does not alter that safeguard, then verify browsing, general events,
-   onboarding, and consent-gated exact events.
+5. After approval, coordinate the reviewed production Rules and verified
+   frontend release. Confirm the promotion action does not alter the Vercel
+   safeguard, then verify browsing, general events, onboarding, and
+   consent-gated exact events.
 
-There will be a temporary exact-event creation/edit transition window between
-rules enforcement and website promotion. Public browsing and general-event
-creation/editing must remain usable during that window.
+The previous frontend cannot browse after source reads are restricted. Plan
+and approve any transition window rather than temporarily reopening source
+reads. Verify that reviewed aliases still support intended legacy general
+writes; unapproved locations are intentionally rejected.
 
 ## Rollback and recovery
 

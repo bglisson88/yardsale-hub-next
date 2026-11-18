@@ -1,4 +1,5 @@
 const fs = require('node:fs');
+const path = require('node:path');
 const { before, beforeEach, after, test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
@@ -23,14 +24,20 @@ const {
 } = require('firebase/firestore');
 
 let environment;
+const productionCandidate = process.env.YSH_TEST_PRODUCTION_RULES_CANDIDATE === '1';
 const startDate = Timestamp.fromDate(new Date('2026-11-10T15:00:00Z'));
 const endDate = Timestamp.fromDate(new Date('2026-11-10T18:00:00Z'));
 const createdAt = Timestamp.fromDate(new Date('2026-11-01T12:00:00Z'));
 
 before(async () => {
+  if (productionCandidate) {
+    assert.equal(process.env.FIRESTORE_EMULATOR_HOST, '127.0.0.1:8080');
+    assert.equal(process.env.GCLOUD_PROJECT, 'demo-yardsale-hub');
+  }
+  const rulesFile = productionCandidate ? 'firestore.production-candidate.rules' : 'firestore.rules';
   environment = await initializeTestEnvironment({
     projectId: 'demo-yardsale-hub',
-    firestore: { rules: fs.readFileSync('firestore.rules', 'utf8') },
+    firestore: { rules: fs.readFileSync(path.join(__dirname, '..', rulesFile), 'utf8') },
   });
 });
 
@@ -278,7 +285,7 @@ test('authenticated users can create and read reviews and query by seller', asyn
   )));
 });
 
-test('review creation rejects forged identities, self reviews, invalid content and document IDs', async () => {
+test('review creation rejects forged identities, self reviews, invalid content and document IDs', { skip: productionCandidate }, async () => {
   const review = { reviewerId: 'alice', sellerId: 'seller', rating: 3, comment: 'Good' };
   const alice = database('alice');
   await assertFails(setDoc(doc(anonymousDatabase(), 'reviews', 'seller_alice'), review));
@@ -311,7 +318,7 @@ test('review creation rejects forged identities, self reviews, invalid content a
   await assertFails(setDoc(doc(alice, 'reviews', 'alice_seller'), review));
 });
 
-test('review updates validate the full document and preserve reviewer-only permissions', async () => {
+test('review updates validate the full document and preserve reviewer-only permissions', { skip: productionCandidate }, async () => {
   const review = { reviewerId: 'alice', sellerId: 'seller', rating: 3, comment: 'Good' };
   await seed('reviews/seller_alice', review);
   const ref = doc(database('alice'), 'reviews', 'seller_alice');
@@ -337,7 +344,7 @@ test('review updates validate the full document and preserve reviewer-only permi
   await assertSucceeds(deleteDoc(ref));
 });
 
-test('legacy reviews allow only bounded comment updates without adding fields or identities', async () => {
+test('legacy reviews allow only bounded comment updates without adding fields or identities', { skip: productionCandidate }, async () => {
   await seed('reviews/legacy', { reviewerId: 'alice', comment: 'Old' });
   const ref = doc(database('alice'), 'reviews', 'legacy');
   await assertSucceeds(updateDoc(ref, { comment: 'Updated' }));
@@ -346,6 +353,31 @@ test('legacy reviews allow only bounded comment updates without adding fields or
   await assertFails(updateDoc(ref, { extra: 'unexpected' }));
   await assertFails(updateDoc(ref, { comment: 'x'.repeat(501) }));
   await assertSucceeds(deleteDoc(ref));
+});
+
+test('production preserves review permissions rather than adopting the staging schema', { skip: !productionCandidate }, async () => {
+  const review = { reviewerId: 'alice', sellerId: 'seller', rating: 1.5, comment: 'Good', extra: true };
+  const ref = doc(database('alice'), 'reviews', 'seller_alice');
+  await assertSucceeds(setDoc(ref, review));
+  await assertFails(setDoc(doc(database('bob'), 'reviews', 'seller_alice'), review));
+  await assertSucceeds(updateDoc(ref, { extra: 'still allowed in production' }));
+  await assertFails(updateDoc(ref, { sellerId: 'bob' }));
+  await assertFails(updateDoc(doc(database('bob'), 'reviews', 'seller_alice'), { comment: 'Changed' }));
+  await assertFails(getDoc(doc(anonymousDatabase(), 'reviews', 'seller_alice')));
+  await assertSucceeds(deleteDoc(ref));
+});
+
+test('production preserves the baseline catch-all and keeps rate-limit records server-only', { skip: !productionCandidate }, async () => {
+  for (const record of ['publicProfiles/alice', 'usernameRateLimits/alice/operations/register']) {
+    await seed(record, { test: true });
+    for (const db of [anonymousDatabase(), database('alice')]) {
+      const ref = doc(db, record);
+      await assertFails(getDoc(ref));
+      await assertFails(getDocs(collection(db, record.slice(0, record.lastIndexOf('/')))));
+      await assertFails(updateDoc(ref, { test: false }));
+      await assertFails(deleteDoc(ref));
+    }
+  }
 });
 
 test('sender creates an application message and both participants can read and query it', async () => {
@@ -970,6 +1002,22 @@ test('public exact-address access requires a matching server consent revision', 
     operationId: 'server-operation-1',
   });
   assert.equal((await assertSucceeds(getDoc(privateRef))).data().address, '12 Main Street');
+
+  if (productionCandidate) {
+    await seed('eventPrivate/revision-match', {
+      userId: 'alice',
+      address: '12 Main Street',
+      addressRevision: 'revision-1',
+      latitude: 30,
+    });
+    await assertFails(getDoc(privateRef));
+    await assertSucceeds(getDoc(doc(database('alice'), 'eventPrivate', 'revision-match')));
+    await seed('eventPrivate/revision-match', {
+      userId: 'alice',
+      address: '12 Main Street',
+      addressRevision: 'revision-1',
+    });
+  }
 
   await seed('eventAddressConsent/revision-match', {
     organizerUid: 'alice',

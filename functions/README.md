@@ -184,10 +184,10 @@ The callable code alone does not enforce public read restrictions. Firestore
 Rules must make consent and rate-limit records server-only, validate the
 marker/revision before an anonymous exact-address read, and reject direct
 client exact writes. The local `firestore.rules` is staging-only and exercises
-those rules. The complete published production rules source is not present in
-the repository; do not copy staging or the historical production backup to
-production. Production rules integration remains blocked until that exact
-source is supplied.
+those rules. `firestore.production-candidate.rules` reconciles the supplied
+production baseline for review only. It is not wired into deployment. Do not
+copy staging or the historical production backup to production; follow the
+remaining release gates in `DEPLOYMENT_CHECKLIST.md`.
 
 ### Public event projection
 

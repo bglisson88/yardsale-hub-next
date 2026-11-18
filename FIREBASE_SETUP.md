@@ -31,11 +31,11 @@ permitted unvalidated event writes.
 The tracked `firestore.rules` is staging-only. It is exercised with local
 emulators; it is not the production rules source. The historical
 `firestore.production-backup.rules` is also not authoritative. Production
-rules must be derived from the complete verified published rules source,
-preserving owner-only user access, public event discovery, and all unrelated
-permissions. Until that exact source is available, production rules
-integration is blocked. Do not publish rules from this repository as a
-production change without separate authorization.
+rules must be derived from the complete verified published rules source.
+`firestore.production-candidate.rules` is a review-only candidate derived
+from the supplied production rules, not a deployment target. See
+`DEPLOYMENT_CHECKLIST.md` for the permission changes, compatibility risks,
+and outstanding release gates. Do not publish without separate authorization.
 
 Public event documents must contain no street address or precise coordinates.
 General-location addresses belong in owner-only `eventPrivate` documents.
